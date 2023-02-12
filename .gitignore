@@ -1,3 +1,5 @@
 /boot.bin
 /testos.iso
 /isodir/
+/zig-cache/
+/zig-out/
