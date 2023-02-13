@@ -2,3 +2,4 @@
 /boot/*.o
 /boot/*.bin
 /boot/*.iso
+/boot/isofiles
