@@ -11,7 +11,7 @@ parser.add_argument("--runqemu", action="store_true")
 args = parser.parse_args()
 
 TARGET_NAME = "kernel.bin"
-ISO_NAME = "fooOs.iso"
+ISO_NAME = "AxiomOS.iso"
 
 ASSEMBLER = "nasm"
 ASSENBLER_FLAG = ["-f", "elf64"]
@@ -28,7 +28,7 @@ LINKER_FLAGS = ["-n", "-o", TARGET_NAME, "-T", LINKER_SCRIPT]
 SRCS = ["multiboot2_header.asm", "boot.asm"]
 
 GRUB_CFG_FILECONTENT = """
-menuentry "foo os" {
+menuentry "AxiomOS" {
     multiboot2 /boot/kernel.bin
     boot
 }"""
