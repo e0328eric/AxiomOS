@@ -1,7 +1,34 @@
 ;;
+;; The MIT License (MIT)
+;;
+;; Copyright (c) 2023 Sungbae Jeong
+;;
+;; Permission is hereby granted, free of charge, to any person obtaining a copy
+;; of this software and associated documentation files (the "Software"), to deal
+;; in the Software without restriction, including without limitation the rights
+;; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+;; copies of the Software, and to permit persons to whom the Software is
+;; furnished to do so, subject to the following conditions:
+;;
+;; The above copyright notice and this permission notice shall be included in all
+;; copies or substantial portions of the Software.
+;;
+;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+;; IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+;; FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+;; AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+;; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+;; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+;; SOFTWARE.
+;;
 ;; fooOs vga.asm
 ;;
 ;; Utilities for VGA Buffer print
+;;
+;; This code is originally written in C and its code is in OSDev Bare Bone.
+;; I rewrite that C code into Assembly without using any converter.
+;;
+;; Link: https://wiki.osdev.org/Bare_Bones
 ;;
 
 ;; VGA Buffer pointer
@@ -90,37 +117,37 @@ terminal_initialize:
     mov BYTE  [terminal_color], al
 
     xor ecx, ecx
-terminal_initialize.loop1.start:
-    cmp ecx, VGA_BUFFER_HEIGHT
-    jge terminal_initialize.loop1.end
-    xor ebx, ebx
-terminal_initialize.loop2.start:
-    cmp ebx, VGA_BUFFER_WIDTH
-    jge terminal_initialize.loop2.end
+    .loop1.start:
+        cmp ecx, VGA_BUFFER_HEIGHT
+        jge .loop1.end
+        xor ebx, ebx
+        .loop2.start:
+            cmp ebx, VGA_BUFFER_WIDTH
+            jge .loop2.end
 
-    ;; calculate edx <- ecx * VGA_BUFFER_WIDTH + ebx
-    mov eax, ecx
-    mov dx, VGA_BUFFER_WIDTH
-    mul dx
-    add eax, ebx
-    mov dx, 2
-    mul dx
-    mov edx, eax
+            ;; calculate edx <- ecx * VGA_BUFFER_WIDTH + ebx
+            mov eax, ecx
+            mov dx, VGA_BUFFER_WIDTH
+            mul dx
+            add eax, ebx
+            mov dx, 2
+            mul dx
+            mov edx, eax
 
-    mov di, ' '
-    xor si, si
-    xor ax, ax
-    mov al, BYTE [terminal_color]
-    mov si, ax
-    call vga_entry
-    mov WORD [VGA_BUFFER_START_PTR + edx], ax
+            mov di, ' '
+            xor si, si
+            xor ax, ax
+            mov al, BYTE [terminal_color]
+            mov si, ax
+            call vga_entry
+            mov WORD [VGA_BUFFER_START_PTR + edx], ax
 
-    inc ebx
-    jmp terminal_initialize.loop2.start
-terminal_initialize.loop2.end:
-    inc ecx
-    jmp terminal_initialize.loop1.start
-terminal_initialize.loop1.end:
+            inc ebx
+            jmp .loop2.start
+        .loop2.end:
+        inc ecx
+        jmp .loop1.start
+    .loop1.end:
 
     popad
     ret
@@ -131,6 +158,31 @@ terminal_initialize.loop1.end:
 ;; None
 terminal_setcolor:
     mov BYTE [terminal_color], cl
+    ret
+
+;; <INPUT>
+;; edi: x
+;; esi: y
+;; <OUTPUT>
+;; None
+terminal_movecursor:
+    mov DWORD [terminal_col], edi
+    mov DWORD [terminal_row], esi
+    ret
+
+;; <NO INPUT>
+;; <NO OUTPUT>
+terminal_newline:
+    push eax
+    mov eax, DWORD [terminal_row]
+    inc eax
+    cmp eax, VGA_BUFFER_HEIGHT
+    jl .end
+    xor eax, eax
+.end:
+    mov DWORD [terminal_row], eax
+    mov DWORD [terminal_col], 0
+    pop eax
     ret
 
 ;; <INPUT>
@@ -174,7 +226,7 @@ terminal_putchar:
     inc edx
     mov DWORD [terminal_col], edx
     cmp edx, VGA_BUFFER_WIDTH
-    jne terminal_putchar.end
+    jne .end
 
     mov DWORD [terminal_col], 0
     mov ecx, DWORD [terminal_row]
@@ -183,7 +235,7 @@ terminal_putchar:
     cmp ecx, VGA_BUFFER_HEIGHT
     jne terminal_putchar.end
     mov DWORD [terminal_row], 0
-terminal_putchar.end:
+.end:
     popad
     ret
 
@@ -195,18 +247,18 @@ terminal_putchar.end:
 terminal_write:
     pushad
     xor ecx, ecx
-terminal_write.loop.start:
-    cmp ecx, esi
-    jge terminal_write.loop.end
-    push edi
-    xor ax, ax
-    mov al, BYTE [edi + ecx]
-    mov di, ax
-    call terminal_putchar
-    pop edi
-    inc ecx
-    jmp terminal_write.loop.start
-terminal_write.loop.end:
+    .loop.start:
+        cmp ecx, esi
+        jge .loop.end
+        push edi
+        xor ax, ax
+        mov al, BYTE [edi + ecx]
+        mov di, ax
+        call terminal_putchar
+        pop edi
+        inc ecx
+        jmp .loop.start
+    .loop.end:
     popad
     ret
 
