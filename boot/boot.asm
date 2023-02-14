@@ -21,7 +21,7 @@
 ;; SOFTWARE.
 ;;
 ;;
-;; fooOs bootloader
+;; AxiomOS bootloader
 ;;
 ;; This code is almost stolen from follow links:
 ;; 1. https://os.phil-opp.com/multiboot-kernel/
@@ -148,7 +148,7 @@ check_long_mode.failed:
 
 
 section .data
-hello_msg: db "Hello to the fooOs.", 0
+hello_msg: db "Hello to the AxiomOS.", 0
 successfully_enter_long_mode:
     db "If this message was shown, this means that you are in the long mode!", 0
 error_msg: db "ERR: ", 0, 0
