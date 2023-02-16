@@ -1,44 +1,44 @@
-##
-## The MIT License (MIT)
-##
-## Copyright (c) 2023 Sungbae Jeong
-##
-## Permission is hereby granted, free of charge, to any person obtaining a copy
-## of this software and associated documentation files (the "Software"), to deal
-## in the Software without restriction, including without limitation the rights
-## to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-## copies of the Software, and to permit persons to whom the Software is
-## furnished to do so, subject to the following conditions:
-##
-## The above copyright notice and this permission notice shall be included in all
-## copies or substantial portions of the Software.
-##
-## THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-## IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-## FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-## AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-## LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-## OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-## SOFTWARE.
-##
-## fooOs vga.asm
-##
-## Utilities for VGA Buffer print
-##
-## This code is originally written in C and its code is in OSDev Bare Bone.
-## I rewrite that C code into Assembly without using any converter.
-##
-## Link: https://wiki.osdev.org/Bare_Bones
-##
+//
+// The MIT License (MIT)
+//
+// Copyright (c) 2023 Sungbae Jeong
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
+// AxiomOs vga.asm
+//
+// Utilities for VGA Buffer print
+//
+// This code is originally written in C and its code is in OSDev Bare Bone.
+// I rewrite that C code into Assembly without using any converter.
+//
+// Link: https://wiki.osdev.org/Bare_Bones
+//
 
-## VGA Buffer pointer
+// VGA Buffer pointer
 .set VGA_BUFFER_START_PTR,    0xB8000
 
-## VGA Buffer size
+// VGA Buffer size
 .set VGA_BUFFER_WIDTH,        80
 .set VGA_BUFFER_HEIGHT,       25
 
-## VGA Buffer colors
+// VGA Buffer colors
 .set VGA_COLOR_BLACK,         0
 .set VGA_COLOR_BLUE,          1
 .set VGA_COLOR_GREEN,         2
@@ -59,11 +59,11 @@
 .section .text
 .code32
 
-## <INPUT>
-## cl: foreground
-## dl: background
-## <OUTPUT>
-## al: color info
+// <INPUT>
+// cl: foreground
+// dl: background
+// <OUTPUT>
+// al: color info
 vga_entry_color:
     xor ax, ax
     mov al, dl
@@ -71,11 +71,11 @@ vga_entry_color:
     or  al, cl
     ret
 
-## <INPUT>
-## di: character
-## si: color
-## <OUTPUT>
-## ax: entry_info
+// <INPUT>
+// di: character
+// si: color
+// <OUTPUT>
+// ax: entry_info
 vga_entry:
     xor ax, ax
     mov ax, si
@@ -83,10 +83,10 @@ vga_entry:
     or  ax, di
     ret
 
-## <INPUT>
-## edi: string (must be NULL byte ended)
-## <OUTPUT>
-## eax: the length of the string without counting a null byte
+// <INPUT>
+// edi: string (must be NULL byte ended)
+// <OUTPUT>
+// eax: the length of the string without counting a null byte
 cstrlen:
     push ecx
     xor  ecx, ecx
@@ -101,10 +101,10 @@ cstrlen.end:
     pop  ecx
     ret
 
-## <INPUT>
-## None
-## <OUTPUT>
-## None
+// <INPUT>
+// None
+// <OUTPUT>
+// None
 terminal_initialize:
     pushad
 
@@ -125,7 +125,7 @@ terminal_initialize:
             cmp ebx, VGA_BUFFER_WIDTH
             jge terminal_initialize.loop2.end
 
-            ## calculate edx <- ecx * VGA_BUFFER_WIDTH + ebx
+            // calculate edx <- ecx * VGA_BUFFER_WIDTH + ebx
             mov eax, ecx
             mov dx, VGA_BUFFER_WIDTH
             mul dx
@@ -152,26 +152,26 @@ terminal_initialize:
     popad
     ret
 
-## <INPUT>
-## cl: terminal color
-## <OUTPUT>
-## None
+// <INPUT>
+// cl: terminal color
+// <OUTPUT>
+// None
 terminal_setcolor:
     mov BYTE PTR [terminal_color], cl
     ret
 
-## <INPUT>
-## edi: x
-## esi: y
-## <OUTPUT>
-## None
+// <INPUT>
+// edi: x
+// esi: y
+// <OUTPUT>
+// None
 terminal_movecursor:
     mov DWORD PTR [terminal_col], edi
     mov DWORD PTR [terminal_row], esi
     ret
 
-## <NO INPUT>
-## <NO OUTPUT>
+// <NO INPUT>
+// <NO OUTPUT>
 terminal_newline:
     push eax
     mov eax, DWORD PTR [terminal_row]
@@ -185,13 +185,13 @@ terminal_newline.end:
     pop eax
     ret
 
-## <INPUT>
-## di:  character
-## si:  color
-## edx: x
-## ecx: y
-## <OUTPUT>
-## None
+// <INPUT>
+// di:  character
+// si:  color
+// edx: x
+// ecx: y
+// <OUTPUT>
+// None
 terminal_putentryat:
     pushad
     push edx
@@ -208,10 +208,10 @@ terminal_putentryat:
     popad
     ret
 
-## <INPUT>
-## di: character
-## <OUTPUT>
-## None
+// <INPUT>
+// di: character
+// <OUTPUT>
+// None
 terminal_putchar:
     pushad
     xor si, si
@@ -239,11 +239,11 @@ terminal_putchar.end:
     popad
     ret
 
-## <INPUT>
-## edi: string (NULL byte end free)
-## esi: length of that string
-## <OUTPUT>
-## None
+// <INPUT>
+// edi: string (NULL byte end free)
+// esi: length of that string
+// <OUTPUT>
+// None
 terminal_write:
     pushad
     xor ecx, ecx
@@ -262,10 +262,10 @@ terminal_write:
     popad
     ret
 
-## <INPUT>
-## edi: string (must be NULL byte ended)
-## <OUTPUT>
-## None
+// <INPUT>
+// edi: string (must be NULL byte ended)
+// <OUTPUT>
+// None
 terminal_writestring:
     pushad
     call cstrlen

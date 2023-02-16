@@ -6,7 +6,6 @@ use core::arch::{asm, global_asm};
 use core::panic;
 
 global_asm!(include_str!("./multiboot2_header.asm"));
-global_asm!(include_str!("./vga.asm"));
 global_asm!(include_str!("./boot.asm"));
 
 #[no_mangle]
