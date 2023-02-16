@@ -1,0 +1,1 @@
+/Users/almagest/Github/AxiomOS/bootloader/target/x86-axiom_os/debug/bootloader: /Users/almagest/Github/AxiomOS/bootloader/build.rs /Users/almagest/Github/AxiomOS/bootloader/src/boot.asm /Users/almagest/Github/AxiomOS/bootloader/src/main.rs /Users/almagest/Github/AxiomOS/bootloader/src/multiboot2_header.asm /Users/almagest/Github/AxiomOS/bootloader/src/vga.asm

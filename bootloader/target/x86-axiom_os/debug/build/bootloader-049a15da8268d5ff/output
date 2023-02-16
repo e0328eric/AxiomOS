@@ -1,0 +1,2 @@
+cargo:rustc-link-arg-bins=-n
+cargo:rustc-link-arg-bins=--script=/Users/almagest/Github/AxiomOS/bootloader/bootloader_linker.ld
