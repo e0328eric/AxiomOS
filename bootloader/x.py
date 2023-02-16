@@ -51,27 +51,29 @@ elif args.check:
             [
                 "grub-file",
                 "--is-x86-multiboot2",
-                "./target/x86-axiom_os/debug/bootloader",
+                "./target/x86_64-axiom_os/debug/bootloader",
             ]
         )
     )
 
 elif args.makeiso:
-    execute(" ".join(["mkdir", "-p", "./target/x86-axiom_os/debug/isofiles/boot/grub"]))
+    execute(
+        " ".join(["mkdir", "-p", "./target/x86_64-axiom_os/debug/isofiles/boot/grub"])
+    )
     execute(
         " ".join(
             [
                 "mv",
-                "./target/x86-axiom_os/debug/bootloader",
-                "./target/x86-axiom_os/debug/isofiles/boot/bootloader",
+                "./target/x86_64-axiom_os/debug/bootloader",
+                "./target/x86_64-axiom_os/debug/isofiles/boot/bootloader",
             ]
         )
     )
-    with open("./target/x86-axiom_os/debug/isofiles/boot/grub/grub.cfg", "w") as f:
+    with open("./target/x86_64-axiom_os/debug/isofiles/boot/grub/grub.cfg", "w") as f:
         f.write(GRUB_CFG_FILECONTENT)
     execute(
         " ".join(
-            ["grub-mkrescue", "-o", ISO_NAME, "./target/x86-axiom_os/debug/isofiles"]
+            ["grub-mkrescue", "-o", ISO_NAME, "./target/x86_64-axiom_os/debug/isofiles"]
         )
     )
 

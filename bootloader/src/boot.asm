@@ -134,20 +134,16 @@ check_long_mode:
     mov eax, 0x80000000             // implicit argument for cpuid
     cpuid                           // get highest supported argument
     cmp eax, 0x80000001             // it needs to be at least 0x80000001
-    jnb 0f                          // if it's less, the CPU is too old for long mode
-    mov al, '2'
-    jmp check_long_mode.failed
+    jb check_long_mode.failed       // if it's less, the CPU is too old for long mode
 
     // use extended info to test if long mode is available
-0:  mov eax, 0x80000001             // argument for extended processor info
+    mov eax, 0x80000001             // argument for extended processor info
     cpuid                           // returns various feature bits in ecx and edx
     test edx, 1 << 29               // test if the LM-bit is set in the D-register
-    jnz 1b                          // If it's not set, there is no long mode
-    mov al, '3'
-    jmp check_long_mode.failed
-1:  nop
+    jz check_long_mode.failed       // If it's not set, there is no long mode
     ret
 check_long_mode.failed:
+    mov al, '2'
     jmp error
 
 
