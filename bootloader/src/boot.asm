@@ -30,8 +30,6 @@
 .global _start
 .extern long_mode_start
 
-.include "src/vga.asm"
-
 .set MULTIBOOT_CHECK_MAGIC, 0x36D76289
 .set CODE_SEGMENT_NUMBER,   0x20980000000000
 .set GDT_DATA_NUMBER,       0x900000000000
@@ -54,9 +52,6 @@ stack_top:
 _start:
     mov esp, offset stack_top
 
-    // Initialize VGA Terminal
-    call terminal_initialize
-
     call check_multiboot
     call check_cpuid
     call check_long_mode
@@ -64,6 +59,9 @@ _start:
     // setting up page tables
     call set_up_page_tables
     call enable_paging
+
+    mov al, 'b'
+    call error
 
     // load the 64-bit GDT
     lgdt [gdt64pointer]
@@ -78,21 +76,14 @@ _start:
 // <INPUT>
 // al: error character
 // <NO OUTPUT>
+// It prints `ERR: _` at the bottom left of the screen with pink background, black foreground
+// If you want to change the color, change the value `D0` into something else.
 error:
-    push ax
-    // set color to pink
-    mov cl, VGA_COLOR_PINK
-    mov dl, VGA_COLOR_BLACK
-    call vga_entry_color
-    mov cl, al
-    call terminal_setcolor
-    xor edi, edi
-    mov esi, VGA_BUFFER_HEIGHT - 1
-    call terminal_movecursor
-    pop ax
-    mov BYTE PTR [error_msg + 5], al
-    mov edi, offset error_msg
-    call terminal_writestring
+    mov DWORD PTR [0xB8F00], 0xD052D045
+    mov DWORD PTR [0xB8F04], 0xD03AD052
+    mov WORD PTR  [0xB8F08], 0xD020
+    mov BYTE PTR  [0xB8F0A], al
+    mov BYTE PTR  [0xB8F0B], 0xD0
 1:  hlt
     jmp 1b
 
@@ -207,10 +198,6 @@ enable_paging:
     mov cr0, eax
 
     ret
-
-.section .data
-error_msg:
-    .ascii "ERR: \0\0"
 
 .section .rodata
 gdt64:

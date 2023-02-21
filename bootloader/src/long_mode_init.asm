@@ -1,4 +1,5 @@
 .global long_mode_start
+
 .extern rust_main
 
 .section .text
@@ -16,6 +17,6 @@ long_mode_start:
     call rust_main
 
     // print `OKAY` to screen
-    mov rax, 0x2f592f412f4b2f4f
-    mov qword ptr [0xb8000], rax
+    mov rax, 0x2F592F412F4B2F4F
+    mov QWORD PTR [0xB8000], rax
     hlt
