@@ -60,9 +60,6 @@ _start:
     call set_up_page_tables
     call enable_paging
 
-    mov al, 'b'
-    call error
-
     // load the 64-bit GDT
     lgdt [gdt64pointer]
 
