@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 fn main() {
     let linker_script_dir =
-        PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("bootloader_linker.ld");
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("linker.ld");
 
     println!("cargo:rustc-link-arg-bins=-n");
     println!(

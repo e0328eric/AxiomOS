@@ -5,9 +5,9 @@
 use core::arch::{asm, global_asm};
 use core::panic;
 
-global_asm!(include_str!("./multiboot2_header.asm"));
-global_asm!(include_str!("./boot.asm"));
-global_asm!(include_str!("./long_mode_init.asm"));
+global_asm!(include_str!("./bootloader/multiboot2_header.asm"));
+global_asm!(include_str!("./bootloader/boot.asm"));
+global_asm!(include_str!("./bootloader/long_mode_init.asm"));
 
 #[no_mangle]
 extern "C" fn rust_main() {
