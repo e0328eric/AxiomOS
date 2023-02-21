@@ -28,11 +28,22 @@
 // 2. https://os.phil-opp.com/entering-longmode/
 
 .global _start
+.extern long_mode_start
 
 .include "src/vga.asm"
-.set MULTIBOOT_CHECK_MAGIC, 0x36d76289
+
+.set MULTIBOOT_CHECK_MAGIC, 0x36D76289
+.set CODE_SEGMENT_NUMBER,   0x20980000000000
+.set GDT_DATA_NUMBER,       0x900000000000
 
 .section .bss
+.align 4096
+p4_table:
+    .skip 4096
+p3_table:
+    .skip 4096
+p2_table:
+    .skip 4096
 .align 16
 stack_bottom:
     .skip 16384
@@ -50,12 +61,16 @@ _start:
     call check_cpuid
     call check_long_mode
 
-    // Printing a greet message
-    mov edi, offset hello_msg
-    call terminal_writestring
-    call terminal_newline
-    mov edi, offset successfully_enter_long_mode
-    call terminal_writestring
+    // setting up page tables
+    call set_up_page_tables
+    call enable_paging
+
+    // load the 64-bit GDT
+    lgdt [gdt64pointer]
+
+.att_syntax
+    jmp $CODE64_SEL,$long_mode_start
+.intel_syntax noprefix
 
 1:  hlt
     jmp 1b
@@ -146,11 +161,67 @@ check_long_mode.failed:
     mov al, '2'
     jmp error
 
+set_up_page_tables:
+    // map first P4 entry to P3 table
+    mov eax, offset p3_table
+    or eax, 0b11 // present + writable
+    mov [p4_table], eax
+
+    // map first P3 entry to P2 table
+    mov eax, offset p2_table
+    or eax, 0b11 // present + writable
+    mov [p3_table], eax
+
+    // map each P2 entry to a huge 2MiB page
+    xor ecx, ecx
+set_up_page_tables.map_p2_table:
+    mov eax, 0x200000
+    mul ecx
+    or eax, 0b10000011 // present + writable + huge
+    mov [p2_table + ecx * 8], eax // map ecx-th entry
+
+    inc ecx                              // increase counter
+    cmp ecx, 512                         // if counter == 512, the whole P2 table is mapped
+    jne set_up_page_tables.map_p2_table  // else map the next entry
+    ret
+
+enable_paging:
+    // load P4 to cr3 register (cpu uses this to access the P4 table)
+    mov eax, p4_table
+    mov cr3, eax
+
+    // enable PAE-flag in cr4 (Physical Address Extension)
+    mov eax, cr4
+    or eax, 1 << 5
+    mov cr4, eax
+
+    // set the long mode bit in the EFER MSR (model specific register)
+    mov ecx, 0xC0000080
+    rdmsr
+    or eax, 1 << 8
+    wrmsr
+
+    // enable paging in the cr0 register
+    mov eax, cr0
+    or eax, 1 << 31
+    mov cr0, eax
+
+    ret
 
 .section .data
-hello_msg:
-    .ascii "Hello to the AxiomOS.\0"
-successfully_enter_long_mode:
-    .ascii "If this message was shown, this means that you are in the long mode!\0"
 error_msg:
     .ascii "ERR: \0\0"
+
+.section .rodata
+gdt64:
+    .quad 0 // zero entry
+gdt64code:
+    .quad CODE_SEGMENT_NUMBER // code segment
+gdt64data:
+    .quad GDT_DATA_NUMBER
+gdt64pointer:
+    .word . - gdt64 - 1
+    .quad gdt64
+
+CODE64_SEL = gdt64code - gdt64
+DATA64_SEL = gdt64data - gdt64

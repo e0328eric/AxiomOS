@@ -6,7 +6,7 @@ SECTIONS
 
     .text :
     {
-        *(.multiboot)
+        KEEP(*(.multiboot))
         *(.text)
     }
     /* Read-only data. */
@@ -14,13 +14,13 @@ SECTIONS
 	{
 		*(.rodata)
 	}
- 
+
 	/* Read-write data (initialized) */
 	.data :
 	{
 		*(.data)
 	}
- 
+
 	/* Read-write data (uninitialized) and stack */
 	.bss :
 	{
