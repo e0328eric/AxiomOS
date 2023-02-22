@@ -1,8 +1,7 @@
 [package]
-name = "bootloader"
+name = "axiom_os"
 version = "0.1.0"
 edition = "2021"
-build = "build.rs"
 
 [profile.dev]
 panic = "abort"
@@ -12,4 +11,5 @@ panic = "abort"
 
 [dependencies]
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
-volatile = "0.4.6"
+spin = "0.9.5"
+volatile = "0.3"

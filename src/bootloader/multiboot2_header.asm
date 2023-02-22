@@ -1,3 +1,5 @@
+.intel_syntax noprefix
+
 .set MAGIC_NUMBER, 0xE85250D6
 .set ARCH_NUMBER,  0 // for i386. If you want to use multiboot2 in MIPS, change this into 4
 

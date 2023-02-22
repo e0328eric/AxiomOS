@@ -1,2 +1,7 @@
 /**/target
 /bootloader/AxiomOS.iso
+
+
+# Added by cargo
+
+/target

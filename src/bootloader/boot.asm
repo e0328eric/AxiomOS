@@ -27,12 +27,16 @@
 // 1. https://os.phil-opp.com/multiboot-kernel/
 // 2. https://os.phil-opp.com/entering-longmode/
 
+.intel_syntax noprefix
+
 .global _start
 .extern long_mode_start
 
-.set MULTIBOOT_CHECK_MAGIC, 0x36D76289
-.set CODE_SEGMENT_NUMBER,   0x20980000000000
-.set GDT_DATA_NUMBER,       0x900000000000
+.set MULTIBOOT_CHECK_MAGIC,   0x36D76289
+.set CODE_SEGMENT_NUMBER,     0x20980000000000
+.set GDT_DATA_NUMBER,         0x900000000000
+.set CHECK_LONG_MODE_MAGIC_1, 0x80000000
+.set CHECK_LONG_MODE_MAGIC_2, 0x80000001
 
 .section .bss
 .align 4096
@@ -134,16 +138,16 @@ check_cpuid.failed:
 // stolen from https://os.phil-opp.com/entering-longmode/
 check_long_mode:
     // test if extended processor info in available
-    mov eax, 0x80000000             // implicit argument for cpuid
-    cpuid                           // get highest supported argument
-    cmp eax, 0x80000001             // it needs to be at least 0x80000001
-    jb check_long_mode.failed       // if it's less, the CPU is too old for long mode
+    mov eax, CHECK_LONG_MODE_MAGIC_1    // implicit argument for cpuid
+    cpuid                               // get highest supported argument
+    cmp eax, CHECK_LONG_MODE_MAGIC_2    // it needs to be at least 0x80000001
+    jb check_long_mode.failed           // if it's less, the CPU is too old for long mode
 
-    // use extended info to test if long mode is available
-    mov eax, 0x80000001             // argument for extended processor info
-    cpuid                           // returns various feature bits in ecx and edx
-    test edx, 1 << 29               // test if the LM-bit is set in the D-register
-    jz check_long_mode.failed       // If it's not set, there is no long mode
+    // use extended info to test if     long mode is available
+    mov eax, CHECK_LONG_MODE_MAGIC_2    // argument for extended processor info
+    cpuid                               // returns various feature bits in ecx and edx
+    test edx, 1 << 29                   // test if the LM-bit is set in the D-register
+    jz check_long_mode.failed           // If it's not set, there is no long mode
     ret
 check_long_mode.failed:
     mov al, '2'

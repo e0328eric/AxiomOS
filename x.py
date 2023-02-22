@@ -64,7 +64,7 @@ elif args.makeiso:
         " ".join(
             [
                 "mv",
-                "./target/x86_64-axiom_os/debug/bootloader",
+                "./target/x86_64-axiom_os/debug/axiom_os",
                 "./target/x86_64-axiom_os/debug/isofiles/boot/bootloader",
             ]
         )
