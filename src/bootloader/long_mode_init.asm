@@ -2,7 +2,7 @@
 
 .global long_mode_start
 
-.extern rust_main
+.extern rust_start
 
 .section .text
 .code64
@@ -15,8 +15,8 @@ long_mode_start:
     mov fs, ax
     mov gs, ax
 
-    // call the rust main
-    call rust_main
+    // call the rust start
+    call rust_start
 
     // print `OKAY` to screen
     mov rax, 0x2F592F412F4B2F4F

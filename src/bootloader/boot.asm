@@ -55,6 +55,7 @@ stack_top:
 .code32
 _start:
     mov esp, offset stack_top
+    mov edi, ebx
 
     call check_multiboot
     call check_cpuid

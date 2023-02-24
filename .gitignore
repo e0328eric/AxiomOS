@@ -1,2 +1,5 @@
 /**/target
 /**/*.iso
+/**/isofiles
+/.DS_Store
+/**/axiom_os

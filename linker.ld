@@ -7,18 +7,23 @@ SECTIONS
     .text :
     {
         KEEP(*(.multiboot))
-        *(.text)
+        *(.text .text.*)
     }
     /* Read-only data. */
 	.rodata :
 	{
-		*(.rodata)
+		*(.rodata .rodata.*)
 	}
 
 	/* Read-write data (initialized) */
 	.data :
 	{
 		*(.data)
+	}
+
+	.data.rel.ro :
+	{
+		*(.data.rel.ro.local*) *(data.rel.ro data.rel.ro.*)
 	}
 
 	/* Read-write data (uninitialized) and stack */
