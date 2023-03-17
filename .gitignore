@@ -3,3 +3,6 @@
 /**/isofiles
 /.DS_Store
 /**/axiom_os
+/obj/
+/cb
+/cb.dSYM/
