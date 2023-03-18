@@ -169,13 +169,15 @@ const char* change_filename(const char* prefix, const char* filename, const char
 
 void compile_project(void) {
     const char* asm_srcs[] = {
-        "./src/bootloader/multiboot_header.asm",  //
-        "./src/bootloader/boot.asm",              //
+        "./src/bootloader/multiboot_header.asm",
+        "./src/bootloader/boot.asm",
+        "./src/kernel/io.asm",
+        "./src/kernel/panic.asm",
         NULL,
     };
     const char* c_srcs[] = {
-        "./src/kernel/kmain.c",  //
-        "./src/kernel/vga.c",    //
+        "./src/kernel/kmain.c",
+        "./src/kernel/framebuffer.c",
         NULL,
     };
 
