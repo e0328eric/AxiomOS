@@ -62,21 +62,12 @@
     "\n\n"
 
 // Definition of building compilers
-#ifndef ASSEMBLER
 #define ASSEMBLER "nasm"
-#endif
 
-#ifndef HOST_C_COMPILER
 #define HOST_C_COMPILER "gcc"
-#endif
+#define PROJECT_C_COMPILER "i686-elf-gcc"
 
-#ifndef PROJECT_C_COMPILER
-#define PROJECT_C_COMPILER "x86_64-elf-gcc"
-#endif
-
-#define PROJECT_C_COMPILER_OPTIONS "-std=gnu11 -Wall -Wextra -Wpedantic"
-
-#define PROJECT_LINKER "x86_64-elf-ld"
+#define PROJECT_LINKER "i686-elf-ld"
 #define LINKER_SCRIPT "linker.ld"
 
 #define KERNEL_BIN "kernel.bin"
@@ -154,8 +145,27 @@ const char* change_extension(const char* filename, const char* ext);
 const char* change_prefix(const char* filename, const char* prefix);
 const char* change_filename(const char* prefix, const char* filename, const char* suffix);
 
-const char** compile_assembly(const char** asm_srcs);
-const char** compile_c(const char** c_srcs);
+#define COMPILE_ASM(_output, _assembler, _asm_srcs, ...)                                \
+    do {                                                                                \
+        size_t asm_srcs_len = arraylen((void**)_asm_srcs);                              \
+        _output = malloc(sizeof(const char*) * asm_srcs_len);                           \
+        _output[asm_srcs_len - 1] = NULL;                                               \
+        for (size_t i = 0; i + 1 < asm_srcs_len; ++i) {                                 \
+            _output[i] = change_filename(OBJECT_HEAD_DIRECTORY, _asm_srcs[i], "o");     \
+            run_cmd(MAKE_CMD(_assembler, __VA_ARGS__, "-o", _output[i], _asm_srcs[i])); \
+        }                                                                               \
+    } while (0)
+
+#define COMPILE_C(_output, _compiler, _c_srcs, ...)                                        \
+    do {                                                                                   \
+        size_t c_srcs_len = arraylen((void**)_c_srcs);                                     \
+        _output = malloc(sizeof(const char*) * c_srcs_len);                                \
+        _output[c_srcs_len - 1] = NULL;                                                    \
+        for (size_t i = 0; i + 1 < c_srcs_len; ++i) {                                      \
+            _output[i] = change_filename(OBJECT_HEAD_DIRECTORY, _c_srcs[i], "o");          \
+            run_cmd(MAKE_CMD(_compiler, __VA_ARGS__, "-o", _output[i], "-c", _c_srcs[i])); \
+        }                                                                                  \
+    } while (0)
 
 void compile_project(void) {
     const char* asm_srcs[] = {
@@ -163,41 +173,28 @@ void compile_project(void) {
         "./src/bootloader/boot.asm",              //
         NULL,
     };
+    const char* c_srcs[] = {
+        "./src/kernel/kmain.c",  //
+        "./src/kernel/vga.c",    //
+        NULL,
+    };
 
     run_cmd(MAKE_CMD("mkdir", "-p", OBJECT_HEAD_DIRECTORY));
-    const char** asm_objs = compile_assembly(asm_srcs);
 
-    Command* asm_link_cmd = MAKE_CMD(PROJECT_LINKER, "-n", "-T", LINKER_SCRIPT);
-    Command* tmp = append_cmd(&asm_link_cmd, (char* const*)asm_objs);
-    asm_link_cmd = append_cmd(&tmp, MAKE_ARGV("-o", KERNEL_BIN));
-    run_cmd(asm_link_cmd);
-}
+    const char** asm_objs;
+    COMPILE_ASM(asm_objs, ASSEMBLER, asm_srcs, "-felf32");
 
-const char** compile_assembly(const char** asm_srcs) {
-    size_t asm_srcs_len = arraylen((void**)asm_srcs);
-    const char** output = malloc(sizeof(const char*) * asm_srcs_len);
-    output[asm_srcs_len - 1] = NULL;
+    const char** c_objs;
+    COMPILE_C(c_objs, PROJECT_C_COMPILER, c_srcs, "-std=gnu11", "-Wall", "-Wextra", "-Wpedantic",
+              "-nostdlib", "-nostdinc", "-fno-builtin", "-fno-stack-protector", "-nostartfiles",
+              "-nodefaultlibs");
 
-    for (size_t i = 0; i + 1 < asm_srcs_len; ++i) {
-        output[i] = change_filename(OBJECT_HEAD_DIRECTORY, asm_srcs[i], "o");
-        run_cmd(MAKE_CMD(ASSEMBLER, "-felf64", "-o", output[i], asm_srcs[i]));
-    }
+    // linking
+    Command* tmp1 = MAKE_CMD(PROJECT_LINKER, "-n", "-T", LINKER_SCRIPT);
+    Command* tmp2 = append_cmd(&tmp1, (char* const*)asm_objs);
+    tmp1 = append_cmd(&tmp2, (char* const*)c_objs);
 
-    return output;
-}
-
-const char** compile_c(const char** c_srcs) {
-    size_t c_srcs_len = arraylen((void**)c_srcs);
-    const char** output = malloc(sizeof(const char*) * c_srcs_len);
-    output[c_srcs_len - 1] = NULL;
-
-    for (size_t i = 0; i + 1 < c_srcs_len; ++i) {
-        output[i] = change_filename(OBJECT_HEAD_DIRECTORY, c_srcs[i], "o");
-        run_cmd(
-            MAKE_CMD(PROJECT_C_COMPILER, PROJECT_C_COMPILER_OPTIONS, "-o", output[i], c_srcs[i]));
-    }
-
-    return output;
+    run_cmd(append_cmd(&tmp1, MAKE_ARGV("-o", KERNEL_BIN)));
 }
 
 void make_iso(void) {
@@ -209,9 +206,6 @@ void make_iso(void) {
         PANIC(ERROR_ATTR "ERROR:" RESET_ATTR " cannot create a file `iso/boot/grub/grub.cfg`\n");
     }
     const char* menu_lst_content =
-        "set timeout=0\n"
-        "set default=0\n"
-        "\n"
         "menuentry \"AxiomOS\" {\n"
         "    multiboot2 /boot/kernel.bin\n"
         "    boot\n"
