@@ -1,5 +1,7 @@
 #pragma once
 
+#include "numtypes.h"
+
 enum {
     FB_WIDTH = 80,
     FB_HEIGHT = 25,
@@ -27,12 +29,9 @@ enum {
 
 #define COORDINATE(_x, _y) ((_y)*FB_WIDTH + (_x))
 
-void fb_write_cell(unsigned int i, char c, unsigned char fg, unsigned char bg);
-void fb_move_cursor(unsigned short pos);
-void fb_nwrite(unsigned int pos,
-               const char* buf,
-               unsigned int len,
-               unsigned char fg,
-               unsigned char bg);
+void fb_write_cell(uint32_t i, char c, uint8_t fg, uint8_t bg);
+void fb_move_cursor(uint16_t pos);
+uint16_t fb_get_cursor_pos(void);
 
-void fb_write(unsigned int pos, const char* buf, unsigned char fg, unsigned char bg);
+void fb_nwrite(uint32_t pos, const char* buf, uint32_t len, uint8_t fg, uint8_t bg);
+void fb_write(uint32_t pos, const char* buf, uint8_t fg, uint8_t bg);

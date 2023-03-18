@@ -16,7 +16,7 @@ enum {
 
 static volatile char* frame_buffer = (char*)0x000B8000;
 
-void fb_write_cell(unsigned int i, char c, unsigned char fg, unsigned char bg) {
+void fb_write_cell(uint32_t i, char c, uint8_t fg, uint8_t bg) {
     ASSERT(i < FB_WIDTH * FB_HEIGHT, 'F');
 
     i <<= 1;
@@ -24,32 +24,38 @@ void fb_write_cell(unsigned int i, char c, unsigned char fg, unsigned char bg) {
     frame_buffer[i + 1] = ((bg & 0x0F) << 4) | (fg & 0x0F);
 }
 
-void fb_move_cursor(unsigned short pos) {
+void fb_move_cursor(uint16_t pos) {
     outb(FB_COMMAND_PORT, FB_HIGH_BYTE_COMMAND);
     outb(FB_DATA_PORT, ((pos >> 8) & 0x00FF));
     outb(FB_COMMAND_PORT, FB_LOW_BYTE_COMMAND);
     outb(FB_DATA_PORT, pos & 0x00FF);
 }
 
-void fb_nwrite(unsigned int pos,
-               const char* buf,
-               unsigned int len,
-               unsigned char fg,
-               unsigned char bg) {
+// INFO: Reference: https://wiki.osdev.org/Text_Mode_Cursor
+uint16_t fb_get_cursor_pos(void) {
+    uint16_t pos = 0;
+    outb(0x3D4, 0x0F);
+    pos |= inb(0x3D5);
+    outb(0x3D4, 0x0E);
+    pos |= ((uint16_t)inb(0x3D5)) << 8;
+    return pos;
+}
+
+void fb_nwrite(uint32_t pos, const char* buf, uint32_t len, uint8_t fg, uint8_t bg) {
     ASSERT(pos < FB_WIDTH * FB_HEIGHT, 'F');
 
     pos <<= 1;
-    for (unsigned int i = 0; i < len; ++i) {
+    for (uint32_t i = 0; i < len; ++i) {
         frame_buffer[pos + (i << 1)] = buf[i];
         frame_buffer[pos + (i << 1) + 1] = ((bg & 0x0F) << 4) | (fg & 0x0F);
     }
 }
 
-void fb_write(unsigned int pos, const char* buf, unsigned char fg, unsigned char bg) {
+void fb_write(uint32_t pos, const char* buf, uint8_t fg, uint8_t bg) {
     ASSERT(pos < FB_WIDTH * FB_HEIGHT, 'F');
 
     pos <<= 1;
-    for (unsigned int i = 0; buf[i]; ++i) {
+    for (uint32_t i = 0; buf[i]; ++i) {
         frame_buffer[pos + (i << 1)] = buf[i];
         frame_buffer[pos + (i << 1) + 1] = ((bg & 0x0F) << 4) | (fg & 0x0F);
     }

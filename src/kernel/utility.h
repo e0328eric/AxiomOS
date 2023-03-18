@@ -17,5 +17,3 @@ __attribute__((noreturn)) extern void raise_error(unsigned char errcode);
 typedef unsigned char bool;
 #define false 0
 #define true 1
-
-typedef unsigned int size_t;
