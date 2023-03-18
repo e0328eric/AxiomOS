@@ -6,3 +6,6 @@
 /obj/
 /cb
 /cb.dSYM/
+/kernel.bin
+/iso
+/*.iso
