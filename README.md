@@ -9,12 +9,17 @@ You need these programs, first of all:
 - i686-elf-gcc
 
 ## How to run this operating system
-Run this command in the shell
+First you need to bootstrap the build system with this command:
 ```console
-gcc cb.c -o cb && ./cb compile
+gcc cb.c -o cb
+```
+
+Then run this command in the shell
+```console
+./cb compile
 ```
 
 If you want to see unit test case result, run this command in the shell
 ```console
-gcc cb.c -o cb && ./cb make-iso && ./cb run-qemu
+./cb make-iso && ./cb run-qemu
 ```
