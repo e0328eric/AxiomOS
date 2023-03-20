@@ -3,23 +3,22 @@ ENTRY(start)
 SECTIONS {
     . = 1M; /* the code should be loaded at 1MB */
 
-    .boot : {
+    .text : ALIGN(4K) {
         KEEP(*(.multiboot_header))
+        *(.debug*)
+        *(.comment)
+        *(.text, .text*)
     }
 
-    .text ALIGN (0x1000) : { /* align at 4KB */
-        *(.text)
-    }
-
-    .rodata ALIGN (0x1000) : {
+    .rodata : {
         *(.rodata*)
     }
 
-    .data ALIGN (0x1000) : {
+    .data : {
         *(.data)
     }
 
-    .bss ALIGN (0x1000) : {
+    .bss : {
         *(COMMON)
         *(.bss)
     }

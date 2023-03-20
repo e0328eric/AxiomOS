@@ -1,11 +1,5 @@
-/**/target
-/**/*.iso
-/**/isofiles
-/.DS_Store
-/**/axiom_os
-/obj/
-/cb
-/cb.dSYM/
-/kernel.bin
-/iso
-/*.iso
+/AxiomOS.iso
+/isodir/
+/zig-out/
+/zig-cache/
+/**/.DS_Store
