@@ -1,10 +1,14 @@
-const FrameBuffer = @import("./FrameBuffer.zig");
+const vga = @import("./vga.zig");
 
-export fn kmain() callconv(.Naked) c_int {
-    FrameBuffer.init(FrameBuffer.FBColor.init(.White, .Black));
-    FrameBuffer.writeString(false, "Hello, AxiomOS!\n");
-    FrameBuffer.writeString(false, "Newline Works");
-    FrameBuffer.moveCursor(FrameBuffer.coord(40, 12));
+extern fn halt() noreturn;
 
-    return 0;
+export fn kmain() callconv(.Naked) noreturn {
+    main();
+    halt();
+}
+
+fn main() void {
+    vga.vgaInit(.White, .Black);
+    vga.clearMonitor();
+    vga.writeString("Hello, AxiomOS!");
 }

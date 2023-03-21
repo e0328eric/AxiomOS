@@ -8,8 +8,8 @@ pub fn build(b: *std.Build) anyerror!void {
     const target = b.standardTargetOptions(.{
         .default_target = try std.zig.CrossTarget.parse(
             .{
-                .arch_os_abi = "x86-freestanding",
-                .cpu_features = "baseline-mmx-sse-sse2+soft_float",
+                .arch_os_abi = "x86_64-freestanding",
+                .cpu_features = "baseline-mmx-sse-sse2-x87+soft_float",
             },
         ),
     });
@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) anyerror!void {
     const asm_files = [_][]const u8{
         "src/bootloader/multiboot_header.s",
         "src/bootloader/boot.s",
-        "src/kernel/port/port.s",
+        "src/bootloader/long_mode.s",
     };
     inline for (asm_files) |@"asm"| {
         kernel.addAssemblyFile(@"asm");
@@ -74,7 +74,7 @@ pub fn build(b: *std.Build) anyerror!void {
     // run qemu step
     const run_qemu_step = b.step("run-qemu", "run qemu");
     const run_qemu_substep = b.addSystemCommand(&[_][]const u8{
-        "qemu-system-i386",
+        "qemu-system-x86_64",
         "-cdrom",
         "AxiomOS.iso",
     });
