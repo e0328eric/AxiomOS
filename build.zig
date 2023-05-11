@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) anyerror!void {
         kernel.addAssemblyFile(@"asm");
     }
     kernel.setLinkerScriptPath(.{ .path = "./linker.ld" });
-    kernel.install();
+    b.installArtifact(kernel);
 
     const run_cmd = b.addRunArtifact(kernel);
     run_cmd.step.dependOn(b.getInstallStep());
