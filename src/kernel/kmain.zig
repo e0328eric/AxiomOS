@@ -2,7 +2,7 @@ const vga = @import("./vga.zig");
 
 extern fn halt() noreturn;
 
-export fn kmain() callconv(.Naked) noreturn {
+export fn kmain() noreturn {
     main();
     halt();
 }

@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) anyerror!void {
         "src/bootloader/long_mode.s",
     };
     inline for (asm_files) |@"asm"| {
-        kernel.addAssemblyFile(@"asm");
+        kernel.addAssemblyFile(.{ .path = @"asm" });
     }
     kernel.setLinkerScriptPath(.{ .path = "./linker.ld" });
     b.installArtifact(kernel);

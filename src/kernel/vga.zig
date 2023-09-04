@@ -47,7 +47,7 @@ var vga = Vga{
     .cursor_x = 0,
     .cursor_y = 0,
     .color = undefined,
-    .buffer = @intToPtr([*]volatile VgaChar, 0x000B8000),
+    .buffer = @as([*]volatile VgaChar, @ptrFromInt(0x000B8000)),
 };
 
 pub fn vgaInit(fg: VgaColorCode, bg: VgaColorCode) void {
@@ -57,9 +57,9 @@ pub fn vgaInit(fg: VgaColorCode, bg: VgaColorCode) void {
 fn moveCursor() void {
     const cursor_location = vga.cursor_y * VGA_BUFFER_WIDTH + vga.cursor_x;
     port.outb(0x3D4, 14);
-    port.outb(0x3D5, @intCast(u8, cursor_location >> 8 & 0xFF));
+    port.outb(0x3D5, @intCast(cursor_location >> 8 & 0xFF));
     port.outb(0x3D4, 15);
-    port.outb(0x3D5, @intCast(u8, cursor_location & 0xFF));
+    port.outb(0x3D5, @intCast(cursor_location & 0xFF));
 }
 
 fn scroll() void {
