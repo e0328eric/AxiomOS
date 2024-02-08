@@ -10,5 +10,5 @@ export fn kmain() noreturn {
 fn main() void {
     vga.vgaInit(.White, .Black);
     vga.clearMonitor();
-    vga.writeString("Hello, AxiomOS!");
+    vga.print("Hello, AxiomOS!\nHere is a number {}.", .{32});
 }

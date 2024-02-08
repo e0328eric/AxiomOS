@@ -1,3 +1,4 @@
+const std = @import("std");
 const port = @import("./port.zig");
 
 const VGA_BUFFER_WIDTH = 80;
@@ -132,4 +133,8 @@ pub fn writeString(str: []const u8) void {
     for (str) |chr| {
         writeChar(chr);
     }
+}
+
+pub fn print(comptime fmt: []const u8, args: anytype) void {
+    writeString(std.fmt.comptimePrint(fmt, args));
 }
