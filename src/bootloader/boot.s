@@ -1,5 +1,5 @@
 .extern long_mode_start
-.globl start
+.globl _start
 .globl halt
 
 .set KERNEL_STACK_SIZE, 4096
@@ -18,8 +18,8 @@ stack_top:
 
 .section .text
 .code32
-.type start, @function
-start:
+.type _start, @function
+_start:
     mov $stack_top, %esp
 
     call check_multiboot

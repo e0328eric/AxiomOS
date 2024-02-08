@@ -1,10 +1,26 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const fs = std.fs;
 const process = std.process;
 
 const Allocator = std.mem.Allocator;
 
-pub fn build(b: *std.Build) anyerror!void {
+const MINIMAL_ZIG_VERSION_STR = "0.12.0-dev.2644+42fcca49c";
+const MINIMAL_ZIG_VERSION = std.SemanticVersion.parse(MINIMAL_ZIG_VERSION_STR) catch unreachable;
+
+const Build = blk: {
+    const current_version = builtin.zig_version;
+    if (current_version.order(MINIMAL_ZIG_VERSION) == .lt) {
+        @compileError("zig version is too old");
+    }
+    if (builtin.os.tag != .linux) {
+        @compileError("It uses `grub-mkrescue` to make iso, and it works well only at Linux.");
+    }
+
+    break :blk std.Build;
+};
+
+pub fn build(b: *Build) anyerror!void {
     const target = b.standardTargetOptions(.{
         .default_target = try std.zig.CrossTarget.parse(
             .{
@@ -60,7 +76,7 @@ pub fn build(b: *std.Build) anyerror!void {
         "isodir",
     });
 
-    var build_iso_step = try b.allocator.create(std.Build.Step);
+    const build_iso_step = try b.allocator.create(std.Build.Step);
     defer b.allocator.destroy(build_iso_step);
     build_iso_step.* = std.Build.Step.init(.{
         .id = .custom,
@@ -81,7 +97,7 @@ pub fn build(b: *std.Build) anyerror!void {
     run_qemu_step.dependOn(&run_qemu_substep.step);
 }
 
-fn buildIso(step: *std.Build.Step, node: *std.Progress.Node) anyerror!void {
+fn buildIso(step: *Build.Step, node: *std.Progress.Node) anyerror!void {
     _ = step;
     _ = node;
 

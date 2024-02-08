@@ -1,4 +1,4 @@
-ENTRY(start)
+ENTRY(_start)
 
 SECTIONS {
     . = 1M; /* the code should be loaded at 1MB */
