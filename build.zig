@@ -5,7 +5,7 @@ const process = std.process;
 
 const Allocator = std.mem.Allocator;
 
-const MINIMAL_ZIG_VERSION_STR = "0.12.0-dev.2644+42fcca49c";
+const MINIMAL_ZIG_VERSION_STR = "0.14.0-dev.27+0cef727e5";
 const MINIMAL_ZIG_VERSION = std.SemanticVersion.parse(MINIMAL_ZIG_VERSION_STR) catch unreachable;
 
 const Build = blk: {
@@ -33,7 +33,7 @@ pub fn build(b: *Build) anyerror!void {
 
     const kernel = b.addExecutable(.{
         .name = "kernel.bin",
-        .root_source_file = .{ .path = "src/kernel/kmain.zig" },
+        .root_source_file = b.path("src/kernel/kmain.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -44,9 +44,9 @@ pub fn build(b: *Build) anyerror!void {
         "src/bootloader/long_mode.s",
     };
     inline for (asm_files) |@"asm"| {
-        kernel.addAssemblyFile(.{ .path = @"asm" });
+        kernel.addAssemblyFile(b.path(@"asm"));
     }
-    kernel.setLinkerScriptPath(.{ .path = "./linker.ld" });
+    kernel.setLinkerScriptPath(b.path("./linker.ld"));
     b.installArtifact(kernel);
 
     const run_cmd = b.addRunArtifact(kernel);
@@ -97,7 +97,7 @@ pub fn build(b: *Build) anyerror!void {
     run_qemu_step.dependOn(&run_qemu_substep.step);
 }
 
-fn buildIso(step: *Build.Step, node: *std.Progress.Node) anyerror!void {
+fn buildIso(step: *Build.Step, node: std.Progress.Node) anyerror!void {
     _ = step;
     _ = node;
 
