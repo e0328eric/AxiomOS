@@ -5,7 +5,7 @@ const process = std.process;
 
 const Allocator = std.mem.Allocator;
 
-const MINIMAL_ZIG_VERSION_STR = "0.14.0-dev.27+0cef727e5";
+const MINIMAL_ZIG_VERSION_STR = "0.14.0-dev.2487+af89bb05d";
 const MINIMAL_ZIG_VERSION = std.SemanticVersion.parse(MINIMAL_ZIG_VERSION_STR) catch unreachable;
 
 const Build = blk: {
@@ -22,7 +22,7 @@ const Build = blk: {
 
 pub fn build(b: *Build) anyerror!void {
     const target = b.standardTargetOptions(.{
-        .default_target = try std.zig.CrossTarget.parse(
+        .default_target = try std.Target.Query.parse(
             .{
                 .arch_os_abi = "x86_64-freestanding",
                 .cpu_features = "baseline-mmx-sse-sse2-x87+soft_float",
@@ -97,7 +97,7 @@ pub fn build(b: *Build) anyerror!void {
     run_qemu_step.dependOn(&run_qemu_substep.step);
 }
 
-fn buildIso(step: *Build.Step, node: std.Progress.Node) anyerror!void {
+fn buildIso(step: *Build.Step, node: Build.Step.MakeOptions) anyerror!void {
     _ = step;
     _ = node;
 
