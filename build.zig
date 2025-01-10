@@ -5,7 +5,7 @@ const process = std.process;
 
 const Allocator = std.mem.Allocator;
 
-const MINIMAL_ZIG_VERSION_STR = "0.14.0-dev.2487+af89bb05d";
+const MINIMAL_ZIG_VERSION_STR = "0.14.0-dev.2628+5b5c60f43";
 const MINIMAL_ZIG_VERSION = std.SemanticVersion.parse(MINIMAL_ZIG_VERSION_STR) catch unreachable;
 
 const Build = blk: {
@@ -46,7 +46,7 @@ pub fn build(b: *Build) anyerror!void {
     inline for (asm_files) |@"asm"| {
         kernel.addAssemblyFile(b.path(@"asm"));
     }
-    kernel.setLinkerScriptPath(b.path("./linker.ld"));
+    kernel.setLinkerScript(b.path("./linker.ld"));
     b.installArtifact(kernel);
 
     const run_cmd = b.addRunArtifact(kernel);
