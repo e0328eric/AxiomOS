@@ -5,16 +5,13 @@ const process = std.process;
 
 const Allocator = std.mem.Allocator;
 
-const MINIMAL_ZIG_VERSION_STR = "0.14.0-dev.2628+5b5c60f43";
+const MINIMAL_ZIG_VERSION_STR = "0.14.0";
 const MINIMAL_ZIG_VERSION = std.SemanticVersion.parse(MINIMAL_ZIG_VERSION_STR) catch unreachable;
 
 const Build = blk: {
     const current_version = builtin.zig_version;
     if (current_version.order(MINIMAL_ZIG_VERSION) == .lt) {
         @compileError("zig version is too old");
-    }
-    if (builtin.os.tag != .linux) {
-        @compileError("It uses `grub-mkrescue` to make iso, and it works well only at Linux.");
     }
 
     break :blk std.Build;
@@ -68,24 +65,28 @@ pub fn build(b: *Build) anyerror!void {
     }
 
     // compile-kernel step
-    const make_iso_step = b.step("make-iso", "install the grub on my kernel");
-    const make_iso_substep = b.addSystemCommand(&[_][]const u8{
-        "grub-mkrescue",
-        "-o",
-        "AxiomOS.iso",
-        "isodir",
-    });
+    if (builtin.os.tag != .linux) {
+        @compileError("It uses `grub-mkrescue` to make iso, and it works well only on linux.");
+    } else {
+        const make_iso_step = b.step("make-iso", "install the grub on my kernel");
+        const make_iso_substep = b.addSystemCommand(&[_][]const u8{
+            "grub-mkrescue",
+            "-o",
+            "AxiomOS.iso",
+            "isodir",
+        });
 
-    const build_iso_step = try b.allocator.create(std.Build.Step);
-    defer b.allocator.destroy(build_iso_step);
-    build_iso_step.* = std.Build.Step.init(.{
-        .id = .custom,
-        .name = "build-iso",
-        .owner = b,
-        .makeFn = buildIso,
-    });
-    make_iso_step.dependOn(build_iso_step);
-    make_iso_step.dependOn(&make_iso_substep.step);
+        const build_iso_step = try b.allocator.create(std.Build.Step);
+        defer b.allocator.destroy(build_iso_step);
+        build_iso_step.* = std.Build.Step.init(.{
+            .id = .custom,
+            .name = "build-iso",
+            .owner = b,
+            .makeFn = buildIso,
+        });
+        make_iso_step.dependOn(build_iso_step);
+        make_iso_step.dependOn(&make_iso_substep.step);
+    }
 
     // run qemu step
     const run_qemu_step = b.step("run-qemu", "run qemu");
