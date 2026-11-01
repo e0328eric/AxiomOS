@@ -1,0 +1,335 @@
+// ACPI fixed-register power management for the BIOS PC target.
+// Discovers ports from firmware; no emulator-specific power-off port.
+// Supports a literal root _S5 package, not a general AML interpreter.
+// Layouts: https://github.com/acpica/acpica/blob/master/source/include/actbl.h
+Port :: #import "port.glo";
+byte_view :: (data: [*]const u8, count: ssize) -> []const u8 #magic "slice_from_pointer";
+
+#public State :: struct {
+    available: bool;
+    pm1a: u16;
+    pm1b: u16;
+    sleep_a: u16;
+    sleep_b: u16;
+    smi_port: u16;
+    acpi_enable: u8;
+    reset_address: usize;
+    reset_space: u8;
+    reset_value: u8;
+}
+
+mapped :: (address: usize, length: usize) -> bool {
+    return address >= 4096 && address < 16#100000000 && length <= 16#100000000 - address;
+}
+
+byte :: (address: usize) -> u8 { return (cast(*const u8)address).*; }
+word32 :: (address: usize) -> u32 { return (cast(*const u32)address).*; }
+word64 :: (address: usize) -> u64 { return (cast(*const u64)address).*; }
+
+matches :: (address: usize, value: str) -> bool {
+    for i: 0..value.count { if byte(address + cast(usize)i) != value[i] return false; }
+    return true;
+}
+
+checksum :: (address: usize, length: usize) -> bool {
+    sum: u32 = 0;
+    for i: 0..cast(ssize)length sum = (sum + cast(u32)byte(address + cast(usize)i)) & 255;
+    return sum == 0;
+}
+
+table_size :: (address: usize, signature: str) -> usize {
+    if !mapped(address, 36) || !matches(address, signature) return 0;
+    size := cast(usize)word32(address + 4);
+    if size < 36 || size > 1024 * 1024 || !mapped(address, size) return 0;
+    if !checksum(address, size) return 0;
+    return size;
+}
+
+find_fadt :: (root: usize, extended: bool) -> usize {
+    signature: str = "RSDT";
+    step: usize = 4;
+    if extended { signature = "XSDT"; step = 8; }
+    size := table_size(root, signature);
+    if size == 0 || (size - 36) % step != 0 return 0;
+    offset: usize = 36;
+    while offset < size {
+        address := cast(usize)word32(root + offset);
+        if extended address = cast(usize)word64(root + offset);
+        if table_size(address, "FACP") >= 116 return address;
+        offset += step;
+    }
+    return 0;
+}
+
+rsdp_fadt :: (rsdp: usize, size: usize) -> usize {
+    if size < 20 || !matches(rsdp, "RSD PTR ") || !checksum(rsdp, 20) return 0;
+    if byte(rsdp + 15) >= 2 {
+        if size < 36 return 0;
+        length := cast(usize)word32(rsdp + 20);
+        if length < 36 || length > size || !checksum(rsdp, length) return 0;
+        fadt := find_fadt(cast(usize)word64(rsdp + 24), true);
+        if fadt != 0 return fadt;
+    }
+    return find_fadt(cast(usize)word32(rsdp + 16), false);
+}
+
+boot_fadt :: (info: usize) -> usize {
+    if !mapped(info, 8) || (info & 7) != 0 return 0;
+    total := cast(usize)word32(info);
+    if total < 16 || total > 1024 * 1024 || !mapped(info, total) return 0;
+    old_rsdp: usize = 0;
+    old_size: usize = 0;
+    offset: usize = 8;
+    while offset + 8 <= total {
+        kind := word32(info + offset);
+        size := cast(usize)word32(info + offset + 4);
+        if size < 8 || size > total - offset return 0;
+        if kind == 0 break;
+        if kind == 15 {
+            fadt := rsdp_fadt(info + offset + 8, size - 8);
+            if fadt != 0 return fadt;
+        }
+        if kind == 14 { old_rsdp = info + offset + 8; old_size = size - 8; }
+        offset += (size + 7) & ~cast(usize)7;
+    }
+    if old_rsdp != 0 return rsdp_fadt(old_rsdp, old_size);
+    return 0;
+}
+
+// AML PkgLength includes its own bytes, and never includes the opcode.
+package_bounds :: (aml: []const u8, start: ssize, body: *ssize, end: *ssize) -> bool {
+    if start >= aml.count return false;
+    lead := aml[start];
+    extra := cast(ssize)(lead >> 6);
+    if start + extra + 1 > aml.count return false;
+    length := cast(ssize)(lead & 63);
+    if extra != 0 {
+        if (lead & 48) != 0 return false;
+        length = cast(ssize)(lead & 15);
+        for i: 0..extra length |= cast(ssize)aml[start + i + 1] << (4 + i * 8);
+    }
+    if length < extra + 1 || length > aml.count - start return false;
+    body.* = start + extra + 1;
+    end.* = start + length;
+    return true;
+}
+
+name_end :: (aml: []const u8, start: ssize) -> ssize {
+    at := start;
+    if at < aml.count && aml[at] == 16#5C at += 1;
+    while at < aml.count && aml[at] == 16#5E at += 1;
+    if at >= aml.count return -1;
+    if aml[at] == 0 return at + 1;
+    segments: ssize = 1;
+    if aml[at] == 16#2E { segments = 2; at += 1; }
+    else if aml[at] == 16#2F {
+        if at + 1 >= aml.count return -1;
+        segments = cast(ssize)aml[at + 1]; at += 2;
+        if segments == 0 return -1;
+    }
+    if segments * 4 > aml.count - at return -1;
+    for i: 0..segments * 4 {
+        ch := aml[at + i];
+        if ch != 95 && (ch < 65 || ch > 90) && (i % 4 == 0 || ch < 48 || ch > 57) return -1;
+    }
+    return at + segments * 4;
+}
+
+data_end :: (aml: []const u8, at: ssize) -> ssize {
+    if at >= aml.count return -1;
+    op := aml[at];
+    size: ssize = 0;
+    if op == 0 || op == 1 || op == 16#FF size = 1;
+    else if op == 16#0A size = 2;
+    else if op == 16#0B size = 3;
+    else if op == 16#0C size = 5;
+    else if op == 16#0E size = 9;
+    if size != 0 {
+        if size > aml.count - at return -1;
+        return at + size;
+    }
+    if op == 16#0D {
+        cursor := at + 1;
+        while cursor < aml.count {
+            if aml[cursor] == 0 return cursor + 1;
+            cursor += 1;
+        }
+        return -1;
+    }
+    if op == 16#11 || op == 16#12 || op == 16#13 {
+        body: ssize; end: ssize;
+        if package_bounds(aml, at + 1, &body, &end) return end;
+        return -1;
+    }
+    return name_end(aml, at);
+}
+
+sleep_integer :: (aml: []const u8, at: *ssize) -> s32 {
+    if at.* >= aml.count return -1;
+    op := aml[at.*];
+    if op == 0 || op == 1 { at.* += 1; return cast(s32)op; }
+    size: ssize = 0;
+    if op == 16#0A size = 1;
+    if op == 16#0B size = 2;
+    if op == 16#0C size = 4;
+    if op == 16#0E size = 8;
+    if size == 0 || size + 1 > aml.count - at.* return -1;
+    value := aml[at.* + 1];
+    for i: 1..size { if aml[at.* + 1 + i] != 0 return -1; }
+    if value > 7 return -1;
+    at.* += size + 1;
+    return cast(s32)value;
+}
+
+// Walk only the root namespace. Skip method/buffer/device bodies instead of
+// mistaking an embedded byte string or a device's _S5 for the system object.
+#public find_sleep_types :: (aml: []const u8, a: *u16, b: *u16, depth: ssize = 0) -> bool {
+    if depth > 8 return false;
+    at: ssize = 0;
+    while at < aml.count {
+        op := aml[at]; at += 1;
+        if op == 16#08 {
+            begin := at;
+            if begin < aml.count && aml[begin] == 16#5C begin += 1;
+            end_name := name_end(aml, at);
+            if end_name < 0 return false;
+            is_s5 := end_name - begin == 4 && aml[begin] == 95 && aml[begin + 1] == 83
+                && aml[begin + 2] == 53 && aml[begin + 3] == 95;
+            at = end_name;
+            if is_s5 {
+                if at >= aml.count || aml[at] != 16#12 return false;
+                body: ssize; end: ssize;
+                if !package_bounds(aml, at + 1, &body, &end) || body >= end || aml[body] < 2 return false;
+                cursor := body + 1;
+                value_a := sleep_integer(aml[0..end], &cursor);
+                value_b := sleep_integer(aml[0..end], &cursor);
+                if value_a < 0 || value_b < 0 return false;
+                a.* = cast(u16)value_a << 10; b.* = cast(u16)value_b << 10;
+                return true;
+            }
+            at = data_end(aml, at);
+        } else if op == 16#10 || op == 16#14 || op == 16#A0 || op == 16#A1 || op == 16#A2 {
+            body: ssize; end: ssize;
+            if !package_bounds(aml, at, &body, &end) return false;
+            if op == 16#10 && body + 2 <= end && aml[body] == 16#5C && aml[body + 1] == 0 {
+                if find_sleep_types(aml[body + 2..end], a, b, depth + 1) return true;
+            }
+            at = end;
+        } else if op == 16#06 {
+            at = name_end(aml, at);
+            if at >= 0 at = name_end(aml, at);
+        } else if op == 16#15 {
+            at = name_end(aml, at);
+            if at < 0 || at + 2 > aml.count return false;
+            at += 2;
+        } else if op == 16#5B {
+            if at >= aml.count return false;
+            ext := aml[at]; at += 1;
+            if ext >= 16#81 && ext <= 16#87 {
+                body: ssize; end: ssize;
+                if !package_bounds(aml, at, &body, &end) return false;
+                at = end;
+            } else if ext == 16#80 { // OperationRegion(Name, space, offset, length).
+                at = name_end(aml, at);
+                if at < 0 || at >= aml.count return false;
+                at = data_end(aml, at + 1);
+                if at >= 0 at = data_end(aml, at);
+            } else if ext == 1 || ext == 2 { // Mutex or Event.
+                at = name_end(aml, at);
+                if ext == 1 && at >= 0 at += 1;
+            } else return false;
+        } else if op != 16#A3 return false;
+        if at < 0 || at > aml.count return false;
+    }
+    return false;
+}
+
+control_port :: (fadt: usize, size: usize, legacy: usize, extended: usize) -> u16 {
+    if size >= extended + 12 && word64(fadt + extended + 4) != 0 {
+        gas := fadt + extended;
+        address := word64(gas + 4);
+        if byte(gas) != 1 || byte(gas + 1) != 16 || byte(gas + 2) != 0 return 0;
+        if byte(gas + 3) != 0 && byte(gas + 3) != 2 return 0;
+        if address > 16#FFFE return 0;
+        return cast(u16)address;
+    }
+    address := word32(fadt + legacy);
+    if byte(fadt + 89) != 2 || address > 16#FFFE return 0;
+    return cast(u16)address;
+}
+
+#public init :: (info: usize, state: *State) {
+    state.* = .{};
+    fadt := boot_fadt(info);
+    if fadt == 0 return;
+    size := table_size(fadt, "FACP");
+    flags := word32(fadt + 112);
+    if size >= 129 && (flags & (1 << 10)) != 0 {
+        gas := fadt + 116;
+        address := cast(usize)word64(gas + 4);
+        space := byte(gas);
+        valid := (space == 1 && address > 0 && address <= 16#FFFF)
+            || (space == 0 && mapped(address, 1));
+        if valid && byte(gas + 1) == 8 && byte(gas + 2) == 0 && byte(gas + 3) <= 1 {
+            state.reset_address = address; state.reset_space = space; state.reset_value = byte(fadt + 128);
+        }
+    }
+    if (flags & (1 << 20)) != 0 return; // Hardware-reduced ACPI is not supported yet.
+    state.pm1a = control_port(fadt, size, 64, 172);
+    state.pm1b = control_port(fadt, size, 68, 184);
+    if state.pm1a == 0 return;
+    b_present := word32(fadt + 68) != 0;
+    if size >= 196 && word64(fadt + 188) != 0 b_present = true;
+    if b_present && state.pm1b == 0 return;
+    smi := word32(fadt + 48);
+    if smi <= 16#FFFF state.smi_port = cast(u16)smi;
+    state.acpi_enable = byte(fadt + 52);
+    dsdt := cast(usize)word32(fadt + 40);
+    if size >= 148 && word64(fadt + 140) != 0 dsdt = cast(usize)word64(fadt + 140);
+    length := table_size(dsdt, "DSDT");
+    if length == 0 return;
+    aml := cast([*]const u8)(dsdt + 36);
+    state.available = find_sleep_types(byte_view(aml, cast(ssize)length - 36), &state.sleep_a, &state.sleep_b);
+}
+
+#public poweroff :: (state: *State) {
+    if !state.available return;
+    if (Port.inw(state.pm1a) & 1) == 0 {
+        if state.smi_port == 0 || state.acpi_enable == 0 return;
+        Port.outb(state.smi_port, state.acpi_enable);
+        for 0..1000000 {
+            if (Port.inw(state.pm1a) & 1) != 0 break;
+            Port.pause_cpu();
+        }
+        if (Port.inw(state.pm1a) & 1) == 0 return;
+    }
+    // Preserve unrelated PM1 control bits; replace SLP_TYP and set SLP_EN.
+    Port.debug("[Power off requested]\n");
+    a := (Port.inw(state.pm1a) & 16#C3FF) | state.sleep_a | 16#2000;
+    b: u16 = 0;
+    if state.pm1b != 0 b = (Port.inw(state.pm1b) & 16#C3FF) | state.sleep_b | 16#2000;
+    Port.outw(state.pm1a, a);
+    if state.pm1b != 0 Port.outw(state.pm1b, b);
+    for 0..1000000 Port.pause_cpu();
+    // Returning means the platform failed to enter S5; keep the UI usable.
+}
+
+#public reboot :: (state: *State) {
+    Port.debug("[Restart requested]\n");
+    if state.reset_address != 0 {
+        Port.debug("[ACPI reset requested]\n");
+        if state.reset_space == 1 Port.outb(cast(u16)state.reset_address, state.reset_value);
+        else (cast(*volatile u8)state.reset_address).* = state.reset_value;
+        for 0..1000000 Port.pause_cpu();
+    }
+    // Legacy PC fallback: pulse the i8042 reset line after its input buffer drains.
+    for 0..1000000 {
+        if (Port.inb(16#64) & 2) == 0 {
+            Port.debug("[i8042 reset requested]\n");
+            Port.outb(16#64, 16#FE);
+            for 0..1000000 Port.pause_cpu();
+            return;
+        }
+        Port.pause_cpu();
+    }
+}

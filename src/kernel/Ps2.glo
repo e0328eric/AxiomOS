@@ -1,0 +1,197 @@
+// Polling i8042 driver. IRQs stay disabled until the kernel has an IDT.
+Port :: #import "port.glo";
+
+#public {
+    EventKind :: enum { None; Key; Mouse; }
+    Event :: struct {
+        kind: EventKind;
+        key: u16;
+        character: u8;
+        pressed: bool;
+        dx: ssize;
+        dy: ssize;
+        buttons: u8;
+    }
+    Decoder :: struct {
+        left_shift: bool;
+        right_shift: bool;
+        left_control: bool;
+        right_control: bool;
+        left_alt: bool;
+        right_alt: bool;
+        caps: bool;
+        caps_down: bool;
+        extended: bool;
+        pause_skip: u8;
+        packet: [3]u8;
+        packet_index: ssize;
+    }
+}
+
+wait_write :: () -> bool {
+    for 0..100000 {
+        if (Port.inb(16#64) & 2) == 0 return true;
+        Port.pause_cpu();
+    }
+    return false;
+}
+
+command :: (value: u8) -> bool {
+    if !wait_write() return false;
+    Port.outb(16#64, value);
+    return true;
+}
+
+data :: (value: u8) -> bool {
+    if !wait_write() return false;
+    Port.outb(16#60, value);
+    return true;
+}
+
+reply :: (mouse: bool) -> s32 {
+    for 0..1000000 {
+        status := Port.inb(16#64);
+        if (status & 1) != 0 {
+            value := Port.inb(16#60);
+            if (status & 16#C0) == 0 && ((status & 32) != 0) == mouse return cast(s32)value;
+        }
+        Port.pause_cpu();
+    }
+    return -1;
+}
+
+device_command :: (mouse: bool, value: u8) -> bool {
+    for 0..3 {
+        if mouse && !command(16#D4) return false;
+        if !data(value) return false;
+        response := reply(mouse);
+        if response == 16#FA return true;
+        if response != 16#FE return false;
+    }
+    return false;
+}
+
+#public init :: () -> u8 {
+    if !command(16#AD) || !command(16#A7) return 0;
+    for 0..64 {
+        if (Port.inb(16#64) & 1) == 0 break;
+        Port.inb(16#60);
+    }
+    if !command(16#20) return 0;
+    config := reply(false);
+    if config < 0 return 0;
+    // No IRQs or translation during device configuration.
+    if !command(16#60) || !data(cast(u8)config & 16#BC) return 0;
+    if !command(16#AE) || !command(16#A8) return 0;
+    keyboard_ok := device_command(false, 16#F5)
+        && device_command(false, 16#F0) && device_command(false, 2);
+    // Reset also leaves an IntelliMouse in the standard three-byte mode.
+    mouse_ok := device_command(true, 16#FF);
+    if mouse_ok mouse_ok = reply(true) == 16#AA && reply(true) == 0;
+    // Translate keyboard set 2 to set 1; enable both interfaces, keep IRQs off.
+    if !command(16#60) || !data((cast(u8)config & 16#8C) | 16#40) return 0;
+    if keyboard_ok keyboard_ok = device_command(false, 16#F4);
+    if mouse_ok mouse_ok = device_command(true, 16#F4);
+    result: u8 = 0;
+    if keyboard_ok result |= 1;
+    if mouse_ok result |= 2;
+    return result;
+}
+
+ascii :: (key: u8, shift: bool, caps: bool) -> u8 {
+    plain: str = "";
+    upper: str = "";
+    index: ssize = 0;
+    if key >= 2 && key <= 13 {
+        plain = "1234567890-="; upper = "!@#$%^&*()_+"; index = cast(ssize)key - 2;
+    } else if key >= 16 && key <= 27 {
+        plain = "qwertyuiop[]"; upper = "QWERTYUIOP{}"; index = cast(ssize)key - 16;
+    } else if key >= 30 && key <= 40 {
+        plain = "asdfghjkl;'"; upper = "ASDFGHJKL:\""; index = cast(ssize)key - 30;
+    } else if key >= 44 && key <= 53 {
+        plain = "zxcvbnm,./"; upper = "ZXCVBNM<>?"; index = cast(ssize)key - 44;
+    } else if key == 41 {
+        plain = "`"; upper = "~";
+    } else if key == 43 {
+        plain = "\\"; upper = "|";
+    } else if key == 57 return 32;
+    else return 0;
+    chr := plain[index];
+    if chr >= 97 && chr <= 122 {
+        if shift != caps return upper[index];
+    } else if shift return upper[index];
+    return chr;
+}
+
+#public keyboard_byte :: (state: *Decoder, byte: u8, event: *Event) -> bool {
+    event.* = .{};
+    if state.pause_skip != 0 { state.pause_skip -= 1; return false; }
+    if byte == 16#E1 { state.pause_skip = 5; state.extended = false; return false; }
+    if byte == 16#E0 { state.extended = true; return false; }
+    if byte == 16#FA || byte == 16#FE return false;
+    extended := state.extended;
+    state.extended = false;
+    key := byte & 16#7F;
+    pressed := (byte & 16#80) == 0;
+    if !extended && key == 42 state.left_shift = pressed;
+    if !extended && key == 54 state.right_shift = pressed;
+    if key == 29 {
+        if extended state.right_control = pressed;
+        else state.left_control = pressed;
+    }
+    if key == 56 {
+        if extended state.right_alt = pressed;
+        else state.left_alt = pressed;
+    }
+    if !extended && key == 58 {
+        if pressed && !state.caps_down state.caps = !state.caps;
+        state.caps_down = pressed;
+    }
+    event.kind = .Key;
+    event.key = cast(u16)key;
+    if extended event.key |= 16#100;
+    event.pressed = pressed;
+    if pressed && !extended && !state.left_control && !state.right_control && !state.left_alt && !state.right_alt {
+        event.character = ascii(key, state.left_shift || state.right_shift, state.caps);
+    }
+    return true;
+}
+
+#public mouse_byte :: (state: *Decoder, byte: u8, event: *Event) -> bool {
+    event.* = .{};
+    if state.packet_index == 0 && (byte & 8) == 0 return false;
+    state.packet[state.packet_index] = byte;
+    state.packet_index += 1;
+    if state.packet_index < 3 return false;
+    state.packet_index = 0;
+    flags := state.packet[0];
+    event.kind = .Mouse;
+    event.buttons = flags & 7;
+    // Sign bits belong to the packet header: deltas are signed nine-bit values.
+    if (flags & 16#C0) == 0 {
+        event.dx = cast(ssize)state.packet[1];
+        event.dy = cast(ssize)state.packet[2];
+        if (flags & 16#10) != 0 event.dx -= 256;
+        if (flags & 16#20) != 0 event.dy -= 256;
+        event.dy = -event.dy; // Screen Y increases downward.
+    }
+    return true;
+}
+
+#public poll :: (state: *Decoder, event: *Event) -> bool {
+    // Bound each batch so drawing still gets time under continuous input.
+    for 0..64 {
+        status := Port.inb(16#64);
+        if (status & 1) == 0 return false;
+        byte := Port.inb(16#60);
+        if (status & 16#C0) != 0 {
+            state.packet_index = 0;
+            state.extended = false;
+            continue;
+        }
+        if (status & 32) != 0 {
+            if mouse_byte(state, byte, event) return true;
+        } else if keyboard_byte(state, byte, event) return true;
+    }
+    return false;
+}

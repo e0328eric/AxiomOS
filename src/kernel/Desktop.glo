@@ -1,0 +1,281 @@
+Fb :: #import "Framebuffer.glo";
+Input :: #import "Ps2.glo";
+
+#public {
+    PowerAction :: enum { None; Restart; PowerOff; }
+    Window :: struct { x: ssize; y: ssize; width: ssize; height: ssize; visible: bool; }
+    Desktop :: struct {
+        width: ssize;
+        height: ssize;
+        windows: [2]Window;
+        order: [2]ssize;
+        focused: ssize;
+        dragging: ssize;
+        drag_x: ssize;
+        drag_y: ssize;
+        mouse_x: ssize;
+        mouse_y: ssize;
+        buttons: u8;
+        notes: [1024]u8;
+        note_count: ssize;
+        devices: u8;
+        dirty: bool;
+        power_action: PowerAction;
+        poweroff_available: bool;
+        status_message: str;
+    }
+}
+
+clamp :: (value: ssize, low: ssize, high: ssize) -> ssize {
+    if value < low return low;
+    if value > high return high;
+    return value;
+}
+
+#public init :: (desktop: *Desktop, width: ssize, height: ssize, devices: u8, poweroff_available: bool = true) {
+    desktop.* = .{};
+    desktop.width = width;
+    desktop.height = height;
+    desktop.devices = devices;
+    desktop.poweroff_available = poweroff_available;
+    desktop.windows[0] = .{ 48, 88, 440, clamp(height - 220, 240, 330), true };
+    desktop.windows[1] = .{ width - 326, 132, 280, 260, true };
+    desktop.order = .[1, 0];
+    desktop.focused = 0;
+    desktop.dragging = -1;
+    desktop.mouse_x = width / 2;
+    desktop.mouse_y = height / 2;
+    desktop.dirty = true;
+}
+
+request_power :: (desktop: *Desktop, action: PowerAction) {
+    if action == .PowerOff && !desktop.poweroff_available {
+        desktop.status_message = "Power off unavailable";
+        desktop.dirty = true;
+        return;
+    }
+    desktop.power_action = action;
+    desktop.dragging = -1;
+}
+
+focus :: (desktop: *Desktop, index: ssize) {
+    desktop.focused = index;
+    desktop.order[0] = 1 - index;
+    desktop.order[1] = index;
+    desktop.dirty = true;
+}
+
+contains :: (window: *Window, x: ssize, y: ssize) -> bool {
+    return window.visible && x >= window.x && y >= window.y
+        && x < window.x + window.width && y < window.y + window.height;
+}
+
+mouse :: (desktop: *Desktop, event: *Input.Event) {
+    old_x := desktop.mouse_x;
+    old_y := desktop.mouse_y;
+    desktop.mouse_x = clamp(old_x + event.dx, 0, desktop.width - 1);
+    desktop.mouse_y = clamp(old_y + event.dy, 0, desktop.height - 1);
+    if old_x != desktop.mouse_x || old_y != desktop.mouse_y desktop.dirty = true;
+    down := (event.buttons & 1) != 0;
+    was_down := (desktop.buttons & 1) != 0;
+    desktop.buttons = event.buttons;
+    if !down desktop.dragging = -1;
+    if down && !was_down {
+        x := desktop.mouse_x;
+        y := desktop.mouse_y;
+        if y >= 10 && y < 38 {
+            if x >= desktop.width - 238 && x < desktop.width - 130 {
+                request_power(desktop, .Restart);
+                return;
+            }
+            if x >= desktop.width - 118 && x < desktop.width - 12 {
+                request_power(desktop, .PowerOff);
+                return;
+            }
+        }
+        // Taskbar buttons reopen a closed window and bring it forward.
+        if y >= desktop.height - 36 {
+            for index: 0..2 {
+                left := 12 + index * 136;
+                if x >= left && x < left + 128 {
+                    desktop.windows[index].visible = true;
+                    focus(desktop, index);
+                    return;
+                }
+            }
+        }
+        for offset: 0..2 {
+            index := desktop.order[1 - offset];
+            window := &desktop.windows[index];
+            if !contains(window, x, y) continue;
+            focus(desktop, index);
+            if y < window.y + 30 {
+                if x >= window.x + window.width - 30 {
+                    window.visible = false;
+                    other := 1 - index;
+                    desktop.focused = -1;
+                    if desktop.windows[other].visible focus(desktop, other);
+                } else {
+                    desktop.dragging = index;
+                    desktop.drag_x = x - window.x;
+                    desktop.drag_y = y - window.y;
+                }
+            }
+            return;
+        }
+        desktop.focused = -1;
+        desktop.dirty = true;
+    }
+    if down && desktop.dragging >= 0 {
+        window := &desktop.windows[desktop.dragging];
+        window.x = clamp(desktop.mouse_x - desktop.drag_x, 0, desktop.width - window.width);
+        window.y = clamp(desktop.mouse_y - desktop.drag_y, 56, desktop.height - 44 - window.height);
+        desktop.dirty = true;
+    }
+}
+
+#public handle :: (desktop: *Desktop, event: *Input.Event) {
+    if desktop.power_action != .None return;
+    if event.kind == .Mouse { mouse(desktop, event); return; }
+    if event.kind != .Key || !event.pressed return;
+    if event.key == 16#44 { request_power(desktop, .Restart); return; } // F10
+    if event.key == 16#58 { request_power(desktop, .PowerOff); return; } // F12
+    if event.key == 16#3B { // F1: restore both demo windows.
+        desktop.windows[0].visible = true;
+        desktop.windows[1].visible = true;
+        focus(desktop, 0);
+        return;
+    }
+    if event.key == 15 { // Tab: cycle visible windows.
+        target: ssize = 0;
+        if desktop.focused == 0 target = 1;
+        if !desktop.windows[target].visible target = 1 - target;
+        if desktop.windows[target].visible focus(desktop, target);
+        return;
+    }
+    if desktop.focused != 0 || !desktop.windows[0].visible return;
+    if event.key == 14 {
+        if desktop.note_count > 0 { desktop.note_count -= 1; desktop.dirty = true; }
+        return;
+    }
+    chr := event.character;
+    if event.key == 28 || event.key == 16#11C chr = 10;
+    if chr != 10 && (chr < 32 || chr > 126) return;
+    if desktop.note_count < desktop.notes.count {
+        desktop.notes[desktop.note_count] = chr;
+        desktop.note_count += 1;
+        desktop.dirty = true;
+    }
+}
+
+draw_notes :: (desktop: *Desktop, fb: *Fb.Framebuffer, window: *Window) {
+    x := window.x + 16;
+    y := window.y + 64;
+    Fb.text(fb, x, window.y + 42, "A little space for your thoughts", 16#64748B);
+    Fb.rect(fb, x - 2, y - 2, window.width - 28, window.height - 98, 16#CBD5E1);
+    Fb.rect(fb, x - 1, y - 1, window.width - 30, window.height - 100, 16#FFFFFF);
+    columns := (window.width - 44) / 12;
+    rows := (window.height - 112) / 18;
+    row: ssize = 0;
+    col: ssize = 0;
+    for i: 0..desktop.note_count {
+        if desktop.notes[i] == 10 { row += 1; col = 0; }
+        else { col += 1; if col == columns { col = 0; row += 1; } }
+    }
+    first_row: ssize = 0;
+    if row >= rows first_row = row - rows + 1;
+    row = 0;
+    col = 0;
+    if desktop.note_count == 0 Fb.text(fb, x + 8, y + 8, "Start typing...", 16#94A3B8, 2);
+    for i: 0..desktop.note_count {
+        chr := desktop.notes[i];
+        if chr == 10 { row += 1; col = 0; continue; }
+        if row >= first_row && row < first_row + rows {
+            Fb.glyph(fb, x + 8 + col * 12, y + 8 + (row - first_row) * 18, chr, 16#1E293B, 2);
+        }
+        col += 1;
+        if col == columns { col = 0; row += 1; }
+    }
+    if desktop.focused == 0 {
+        Fb.rect(fb, x + 7 + col * 12, y + 7 + (row - first_row) * 18, 2, 16, 16#0D9488);
+    }
+    hint: str = "Enter: new line   Backspace: erase";
+    if desktop.note_count == desktop.notes.count hint = "Note full - Backspace to make room";
+    Fb.text(fb, x, window.y + window.height - 22, hint, 16#64748B);
+}
+
+draw_welcome :: (fb: *Fb.Framebuffer, window: *Window) {
+    x := window.x + 20;
+    y := window.y + 48;
+    Fb.rect(fb, x, y, 40, 40, 16#CCFBF1);
+    Fb.text(fb, x + 10, y + 10, "A", 16#0F766E, 3);
+    Fb.text(fb, x + 54, y + 4, "Hello,", 16#0F172A, 2);
+    Fb.text(fb, x + 54, y + 24, "AxiomOS!", 16#0F766E, 2);
+    Fb.text(fb, x, y + 62, "Your small workspace.", 16#475569);
+    Fb.rect(fb, x, y + 84, window.width - 40, 1, 16#CBD5E1);
+    Fb.text(fb, x, y + 102, "Drag a title bar to move.", 16#334155);
+    Fb.text(fb, x, y + 122, "Click a window to focus.", 16#334155);
+    Fb.text(fb, x, y + 142, "TAB switches windows.", 16#334155);
+    Fb.text(fb, x, y + 162, "F1 opens both windows.", 16#334155);
+    Fb.text(fb, x, y + 190, "Notes stay until restart.", 16#64748B);
+}
+
+draw_window :: (desktop: *Desktop, fb: *Fb.Framebuffer, index: ssize) {
+    window := &desktop.windows[index];
+    if !window.visible return;
+    Fb.rect(fb, window.x + 5, window.y + 6, window.width, window.height, 16#0B1728);
+    Fb.rect(fb, window.x - 1, window.y - 1, window.width + 2, window.height + 2, 16#64748B);
+    Fb.rect(fb, window.x, window.y, window.width, window.height, 16#F1F5F9);
+    title_color: u32 = 16#475569;
+    if desktop.focused == index title_color = 16#0F766E;
+    Fb.rect(fb, window.x, window.y, window.width, 30, title_color);
+    title: str = "Notes";
+    if index == 1 title = "Welcome";
+    Fb.text(fb, window.x + 12, window.y + 8, title, 16#FFFFFF, 2);
+    Fb.rect(fb, window.x + window.width - 26, window.y + 4, 22, 22, title_color);
+    Fb.text(fb, window.x + window.width - 20, window.y + 8, "x", 16#FFFFFF, 2);
+    if index == 0 draw_notes(desktop, fb, window);
+    else draw_welcome(fb, window);
+}
+
+draw_cursor :: (desktop: *Desktop, fb: *Fb.Framebuffer) {
+    // A white arrow with a dark border, clipped at the screen edges.
+    for row: 0..16 {
+        width := row / 2 + 1;
+        Fb.rect(fb, desktop.mouse_x, desktop.mouse_y + row, width + 1, 1, 16#0F172A);
+        if row > 1 && row < 14 Fb.rect(fb, desktop.mouse_x + 1, desktop.mouse_y + row, width - 1, 1, 16#FFFFFF);
+    }
+    Fb.rect(fb, desktop.mouse_x + 4, desktop.mouse_y + 12, 4, 8, 16#0F172A);
+    Fb.rect(fb, desktop.mouse_x + 5, desktop.mouse_y + 13, 2, 6, 16#FFFFFF);
+}
+
+#public draw :: (desktop: *Desktop, fb: *Fb.Framebuffer) {
+    Fb.rect(fb, 0, 0, fb.width, fb.height, 16#16263B);
+    Fb.rect(fb, 0, 0, fb.width, 48, 16#0F1B2D);
+    Fb.rect(fb, 20, 15, 16, 16, 16#2DD4BF);
+    Fb.text(fb, 48, 17, "AXIOM", 16#F8FAFC, 2);
+    Fb.text(fb, 126, 22, "/ DESKTOP", 16#94A3B8);
+    Fb.rect(fb, fb.width - 238, 10, 108, 28, 16#22334A);
+    Fb.text(fb, fb.width - 226, 20, "Restart F10", 16#F8FAFC);
+    power_color: u32 = 16#9F3434;
+    if !desktop.poweroff_available power_color = 16#475569;
+    Fb.rect(fb, fb.width - 118, 10, 106, 28, power_color);
+    Fb.text(fb, fb.width - 106, 20, "Power off F12", 16#F8FAFC);
+    for i: 0..2 draw_window(desktop, fb, desktop.order[i]);
+    Fb.rect(fb, 0, fb.height - 40, fb.width, 40, 16#0F1B2D);
+    for i: 0..2 {
+        bg: u32 = 16#22334A;
+        if desktop.focused == i bg = 16#0F766E;
+        Fb.rect(fb, 12 + i * 136, fb.height - 34, 128, 28, bg);
+        title: str = "Notes";
+        if i == 1 title = "Welcome";
+        Fb.text(fb, 24 + i * 136, fb.height - 24, title, 16#F8FAFC);
+        if desktop.windows[i].visible Fb.rect(fb, 24 + i * 136, fb.height - 10, 12, 2, 16#5EEAD4);
+    }
+    status: str = "TAB switch  |  F1 restore";
+    if desktop.devices != 3 status = "Input device unavailable";
+    if desktop.status_message.count != 0 status = desktop.status_message;
+    Fb.text(fb, fb.width - 166, fb.height - 23, status, 16#94A3B8);
+    draw_cursor(desktop, fb);
+    desktop.dirty = false;
+}

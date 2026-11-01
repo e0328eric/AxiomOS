@@ -1,4 +1,4 @@
 { pkgs ? import <nixpkgs> {} }:
 pkgs.mkShell {
-  packages = with pkgs; [ fasm grub2 xorriso qemu ];
+  packages = with pkgs; [ fasm grub2 xorriso qemu python3 ];
 }

@@ -1,0 +1,146 @@
+// Runs in the freestanding test kernel. Checks boundaries and state transitions.
+Fb :: #import "../src/kernel/Framebuffer.glo";
+Input :: #import "../src/kernel/Ps2.glo";
+Gui :: #import "../src/kernel/Desktop.glo";
+Port :: #import "../src/kernel/port.glo";
+
+framebuffer_tests :: () -> s32 {
+    info: [56]u8 #align 8;
+    words := cast([*]u32)info.data;
+    words[0] = 56;
+    words[2] = 8; words[3] = 38;
+    words[4] = 16#E0000000; words[5] = 0;
+    words[6] = 3232; words[7] = 800; words[8] = 600;
+    info[36] = 32; info[37] = 1;
+    info[40] = 16; info[41] = 8;
+    info[42] = 8; info[43] = 8;
+    info[44] = 0; info[45] = 8;
+    words[12] = 0; words[13] = 8;
+    fb: Fb.Framebuffer;
+    if !Fb.init(cast(usize)info.data, &fb) || fb.width != 800 || fb.pitch != 3232 return 30;
+    info[36] = 24;
+    if Fb.init(cast(usize)info.data, &fb) return 31;
+    info[36] = 32; info[42] = 16;
+    if Fb.init(cast(usize)info.data, &fb) return 32;
+    info[42] = 8; words[4] = 16#FFFFF000;
+    if Fb.init(cast(usize)info.data, &fb) return 33;
+    words[4] = 16#E0000000; words[3] = 0;
+    if Fb.init(cast(usize)info.data, &fb) return 34;
+    words[3] = 16#FFFFFFFF;
+    if Fb.init(cast(usize)info.data, &fb) return 35;
+    if Fb.init(0, &fb) || Fb.init(16#FFFFFFF8, &fb) return 36;
+
+    // Guard pixels and padded scanlines expose clipping/stride mistakes.
+    back: [14]u32;
+    screen: [20]u32;
+    back[0] = 99; back[13] = 99;
+    for i: 0..screen.count screen[i] = 77;
+    fb = .{ cast([*]volatile u32)&screen[1], cast([*]u32)&back[1], 4, 3, 24, 0, 8, 16 };
+    Fb.rect(&fb, -1, -1, 3, 3, 16#112233);
+    Fb.rect(&fb, 5, 5, 10, 10, 16#FFFFFF);
+    Fb.rect(&fb, -5, -5, 2, 2, 16#FFFFFF);
+    if back[0] != 99 || back[13] != 99 return 37;
+    if back[1] != 16#332211 || back[2] != 16#332211 || back[3] != 0 || back[5] != 16#332211 return 38;
+    Fb.present(&fb);
+    if screen[0] != 77 || screen[19] != 77 || screen[5] != 77 || screen[6] != 77 return 39;
+    if screen[1] != 16#332211 || screen[7] != 16#332211 || screen[13] != 0 return 40;
+    return 0;
+}
+
+input_tests :: () -> s32 {
+    decoder: Input.Decoder;
+    event: Input.Event;
+    if !Input.keyboard_byte(&decoder, 30, &event) || event.character != 97 || !event.pressed return 41;
+    Input.keyboard_byte(&decoder, 16#9E, &event);
+    if event.pressed || event.character != 0 return 42;
+    Input.keyboard_byte(&decoder, 42, &event);
+    Input.keyboard_byte(&decoder, 54, &event);
+    Input.keyboard_byte(&decoder, 16#AA, &event);
+    Input.keyboard_byte(&decoder, 30, &event);
+    if event.character != 65 return 43; // Right Shift survives left release.
+    Input.keyboard_byte(&decoder, 16#B6, &event);
+    Input.keyboard_byte(&decoder, 58, &event);
+    Input.keyboard_byte(&decoder, 58, &event); // Typematic must not toggle twice.
+    Input.keyboard_byte(&decoder, 30, &event);
+    if event.character != 65 return 44;
+    Input.keyboard_byte(&decoder, 42, &event);
+    Input.keyboard_byte(&decoder, 30, &event);
+    if event.character != 97 return 45;
+    Input.keyboard_byte(&decoder, 2, &event);
+    if event.character != 33 return 46;
+    Input.keyboard_byte(&decoder, 16#AA, &event);
+    if Input.keyboard_byte(&decoder, 16#E0, &event) return 47;
+    Input.keyboard_byte(&decoder, 16#4B, &event);
+    if event.key != 16#14B || event.character != 0 return 48;
+    Input.keyboard_byte(&decoder, 29, &event);
+    Input.keyboard_byte(&decoder, 30, &event);
+    if event.character != 0 return 49;
+    if Input.mouse_byte(&decoder, 0, &event) return 50;
+    Input.mouse_byte(&decoder, 16#38, &event);
+    Input.mouse_byte(&decoder, 128, &event);
+    if !Input.mouse_byte(&decoder, 255, &event) || event.dx != -128 || event.dy != 1 return 51;
+    Input.mouse_byte(&decoder, 16#09, &event);
+    Input.mouse_byte(&decoder, 200, &event);
+    Input.mouse_byte(&decoder, 10, &event);
+    if event.dx != 200 || event.dy != -10 || event.buttons != 1 return 52;
+    Input.mouse_byte(&decoder, 16#C8, &event);
+    Input.mouse_byte(&decoder, 255, &event);
+    Input.mouse_byte(&decoder, 255, &event);
+    if event.dx != 0 || event.dy != 0 || event.buttons != 0 return 53;
+    return 0;
+}
+
+desktop_tests :: () -> s32 {
+    desktop: Gui.Desktop;
+    Gui.init(&desktop, 800, 600, 3);
+    event := Input.Event.{ .kind = .Key, .key = 30, .character = 97, .pressed = true };
+    Gui.handle(&desktop, &event);
+    if desktop.note_count != 1 || desktop.notes[0] != 97 return 54;
+    event.pressed = false; Gui.handle(&desktop, &event);
+    if desktop.note_count != 1 return 55;
+    event.pressed = true; event.key = 15; Gui.handle(&desktop, &event);
+    event.key = 30; Gui.handle(&desktop, &event);
+    if desktop.focused != 1 || desktop.note_count != 1 return 56;
+    event.key = 15; Gui.handle(&desktop, &event);
+    event.key = 14; Gui.handle(&desktop, &event); Gui.handle(&desktop, &event);
+    if desktop.note_count != 0 return 57;
+    event.key = 30;
+    for 0..1100 Gui.handle(&desktop, &event);
+    if desktop.note_count != 1024 return 58;
+
+    // Capture the title bar, drag well beyond the screen, then release.
+    event = .{ .kind = .Mouse, .dx = -300, .dy = -200, .buttons = 1 };
+    Gui.handle(&desktop, &event);
+    if desktop.dragging != 0 return 59;
+    event.dx = -1000; event.dy = -1000; Gui.handle(&desktop, &event);
+    if desktop.windows[0].x != 0 || desktop.windows[0].y != 56 return 60;
+    event.dx = 0; event.dy = 0; event.buttons = 0; Gui.handle(&desktop, &event);
+    if desktop.dragging != -1 return 61;
+    // Close Notes, then restore it from the taskbar without losing its buffer.
+    event.dx = 426; event.dy = 66; event.buttons = 1; Gui.handle(&desktop, &event);
+    if desktop.windows[0].visible || desktop.focused != 1 return 62;
+    event.dx = 0; event.dy = 0; event.buttons = 0; Gui.handle(&desktop, &event);
+    event.dx = -386; event.dy = 514; event.buttons = 1; Gui.handle(&desktop, &event);
+    if !desktop.windows[0].visible || desktop.focused != 0 || desktop.note_count != 1024 return 63;
+    // The same overlap must select whichever window is currently in front.
+    Gui.init(&desktop, 800, 600, 3);
+    event = .{ .kind = .Mouse, .dx = 80, .dy = -100, .buttons = 1 };
+    Gui.handle(&desktop, &event);
+    if desktop.focused != 0 return 64;
+    event = .{ .kind = .Key, .key = 15, .pressed = true }; Gui.handle(&desktop, &event);
+    event = .{ .kind = .Mouse, .buttons = 0 }; Gui.handle(&desktop, &event);
+    event.buttons = 1; Gui.handle(&desktop, &event);
+    if desktop.focused != 1 return 65;
+    return 0;
+}
+
+#public run_gui_tests :: () -> s32 {
+    code := framebuffer_tests();
+    if code != 0 return code;
+    code = input_tests();
+    if code != 0 return code;
+    code = desktop_tests();
+    if code != 0 return code;
+    Port.debug("[GUI checks passed]\n");
+    return 0;
+}

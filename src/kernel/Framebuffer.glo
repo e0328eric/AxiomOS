@@ -1,0 +1,110 @@
+// Multiboot2 RGB framebuffer, with a fixed RAM back buffer. No allocator.
+Font :: #import "Font.glo";
+
+MAX_WIDTH :: 1280;
+MAX_HEIGHT :: 1024;
+pixels: [MAX_WIDTH * MAX_HEIGHT]u32;
+
+#public Framebuffer :: struct {
+    screen: [*]volatile u32;
+    buffer: [*]u32;
+    width: ssize;
+    height: ssize;
+    pitch: usize;
+    red_shift: u8;
+    green_shift: u8;
+    blue_shift: u8;
+}
+
+read32 :: (address: usize) -> u32 { return (cast(*const u32)address).*; }
+read64 :: (address: usize) -> u64 { return (cast(*const u64)address).*; }
+
+#public init :: (info: usize, fb: *Framebuffer) -> bool {
+    // All boot pointers must fit in the bootstrap's 4-GiB mapping.
+    if info < 4096 || info > 16#FFFFFFF0 || (info & 7) != 0 return false;
+    total := cast(usize)read32(info);
+    if total < 16 || total > 1024 * 1024 || total > 16#100000000 - info return false;
+    offset: usize = 8;
+    while offset + 8 <= total {
+        tag := info + offset;
+        kind := read32(tag);
+        size := cast(usize)read32(tag + 4);
+        if size < 8 || size > total - offset return false;
+        if kind == 0 return false;
+        if kind == 8 {
+            if size < 38 return false;
+            bytes := cast([*]const u8)tag;
+            address := read64(tag + 8);
+            pitch := cast(usize)read32(tag + 16);
+            width := cast(ssize)read32(tag + 20);
+            height := cast(ssize)read32(tag + 24);
+            if bytes[28] != 32 || bytes[29] != 1 return false;
+            if width < 640 || height < 480 || width > MAX_WIDTH || height > MAX_HEIGHT return false;
+            if pitch < cast(usize)width * 4 || (pitch & 3) != 0 || (address & 3) != 0 return false;
+            span := cast(u64)pitch * cast(u64)height;
+            if address == 0 || address >= 16#100000000 || span > 16#100000000 - address return false;
+            // This renderer accepts non-overlapping 8-bit RGB channels in any order.
+            if bytes[33] != 8 || bytes[35] != 8 || bytes[37] != 8 return false;
+            r := bytes[32];
+            g := bytes[34];
+            b := bytes[36];
+            if r > 24 || g > 24 || b > 24 return false;
+            if ((cast(u32)255 << cast(u32)r) & (cast(u32)255 << cast(u32)g)) != 0 return false;
+            if ((cast(u32)255 << cast(u32)r) & (cast(u32)255 << cast(u32)b)) != 0 return false;
+            if ((cast(u32)255 << cast(u32)g) & (cast(u32)255 << cast(u32)b)) != 0 return false;
+            fb.* = .{ cast([*]volatile u32)cast(usize)address, pixels.data,
+                width, height, pitch, r, g, b };
+            return true;
+        }
+        offset += (size + 7) & ~cast(usize)7;
+    }
+    return false;
+}
+
+#public color :: (fb: *Framebuffer, rgb: u32) -> u32 {
+    return (((rgb >> 16) & 255) << cast(u32)fb.red_shift)
+        | (((rgb >> 8) & 255) << cast(u32)fb.green_shift)
+        | ((rgb & 255) << cast(u32)fb.blue_shift);
+}
+
+#public rect :: (fb: *Framebuffer, x: ssize, y: ssize, w: ssize, h: ssize, rgb: u32) {
+    left := x;
+    top := y;
+    right := x + w;
+    bottom := y + h;
+    if left < 0 left = 0;
+    if top < 0 top = 0;
+    if right > fb.width right = fb.width;
+    if bottom > fb.height bottom = fb.height;
+    pixel := color(fb, rgb);
+    for row: top..bottom {
+        for col: left..right fb.buffer[row * fb.width + col] = pixel;
+    }
+}
+
+#public glyph :: (fb: *Framebuffer, x: ssize, y: ssize, chr: u8, rgb: u32, scale: ssize = 1) {
+    if chr < 32 || chr > 126 return;
+    for row: 0..7 {
+        bits := Font.rows[chr - 32][row];
+        for col: 0..5 {
+            if (bits & (cast(u8)16 >> cast(u8)col)) != 0 {
+                rect(fb, x + col * scale, y + row * scale, scale, scale, rgb);
+            }
+        }
+    }
+}
+
+#public text :: (fb: *Framebuffer, x: ssize, y: ssize, value: str, rgb: u32, scale: ssize = 1) {
+    at := x;
+    for i: 0..value.count {
+        glyph(fb, at, y, value[i], rgb, scale);
+        at += 6 * scale;
+    }
+}
+
+#public present :: (fb: *Framebuffer) {
+    stride := cast(ssize)(fb.pitch / 4);
+    for y: 0..fb.height {
+        for x: 0..fb.width fb.screen[y * stride + x] = fb.buffer[y * fb.width + x];
+    }
+}

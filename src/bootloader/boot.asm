@@ -10,6 +10,11 @@ header_start:
     dd 0xE85250D6, 0
     dd header_end - header_start
     dd -(0xE85250D6 + header_end - header_start)
+    ; Preferred direct-color framebuffer. GRUB reports the actual mode.
+    dw 5, 1
+    dd 20
+    dd 800, 600, 32
+    align 8
     dw 0, 0
     dd 8
 header_end:
@@ -17,7 +22,9 @@ header_end:
 section '.bss' writeable align 4096
 p4_table: rb 4096
 p3_table: rb 4096
-p2_table: rb 4096
+p2_table: rb 4 * 4096
+multiboot_info: rd 1
+align 16
 stack_bottom: rb 65536
 stack_top:
 
@@ -29,6 +36,7 @@ _start:
     mov esp, stack_top
     cmp eax, 0x36D76289
     jne bad_multiboot
+    mov [multiboot_info], ebx ; CPUID destroys EBX.
 
     ; Test CPUID availability without assuming the ID bit starts clear.
     pushfd
@@ -53,26 +61,38 @@ _start:
     test edx, 1 shl 29
     jz bad_long_mode
 
-    ; Identity-map the first GiB with 512 two-MiB pages. Explicitly clear
-    ; all high halves and unused entries before enabling paging.
+    ; Identity-map 4 GiB, including the PCI framebuffer. Keep the upper
+    ; 3 GiB uncached (PCD|PWT) for MMIO; kernel/RAM remain in the first GiB.
+    ; Explicitly clear high halves and unused entries before paging.
     mov edi, p4_table
     xor eax, eax
-    mov ecx, 3 * 4096 / 4
+    mov ecx, 6 * 4096 / 4
     rep stosd
     mov eax, p3_table
     or eax, 3
     mov [p4_table], eax
-    mov eax, p2_table
+    xor ecx, ecx
+.map_directory:
+    mov eax, ecx
+    shl eax, 12
+    add eax, p2_table
     or eax, 3
-    mov [p3_table], eax
+    mov [p3_table + ecx * 8], eax
+    inc ecx
+    cmp ecx, 4
+    jne .map_directory
     xor ecx, ecx
 .map_page:
     mov eax, ecx
     shl eax, 21
     or eax, 0x83
+    cmp ecx, 512
+    jb .ram_page
+    or eax, 0x18
+.ram_page:
     mov [p2_table + ecx * 8], eax
     inc ecx
-    cmp ecx, 512
+    cmp ecx, 2048
     jne .map_page
 
     mov eax, p4_table
@@ -123,6 +143,7 @@ long_mode_start:
     mov rsp, stack_top
     xor ebp, ebp
     fninit
+    mov edi, [multiboot_info] ; First argument in the x86-64 C ABI.
     call glo_kmain
 .halt:
     cli

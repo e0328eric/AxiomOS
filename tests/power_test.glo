@@ -1,0 +1,160 @@
+Power :: #import "../src/kernel/Power.glo";
+Gui :: #import "../src/kernel/Desktop.glo";
+Input :: #import "../src/kernel/Ps2.glo";
+Port :: #import "../src/kernel/port.glo";
+
+aml_tests :: () -> s32 {
+    a: u16; b: u16;
+    plain: [_]u8 = .[8, 95, 83, 53, 95, 16#12, 4, 2, 0, 1];
+    if !Power.find_sleep_types(plain[0..plain.count], &a, &b) || a != 0 || b != 1024 return 70;
+    for length: 0..plain.count {
+        if Power.find_sleep_types(plain[0..length], &a, &b) return 71;
+    }
+    rooted: [_]u8 = .[8, 16#5C, 95, 83, 53, 95, 16#12, 6, 2, 16#0A, 5, 16#0A, 6];
+    if !Power.find_sleep_types(rooted[0..rooted.count], &a, &b) || a != 5120 || b != 6144 return 72;
+    rooted[10] = 8;
+    if Power.find_sleep_types(rooted[0..rooted.count], &a, &b) return 73;
+    scoped: [_]u8 = .[16#10, 13, 16#5C, 0, 8, 95, 83, 53, 95, 16#12, 4, 2, 0, 1];
+    if !Power.find_sleep_types(scoped[0..scoped.count], &a, &b) return 74;
+    wide_length: [_]u8 = .[8, 95, 83, 53, 95, 16#12, 16#45, 0, 2, 0, 1];
+    if !Power.find_sleep_types(wide_length[0..wide_length.count], &a, &b) return 75;
+    // Embedded bytes, methods, and non-root namespaces are not system _S5.
+    buffer: [_]u8 = .[8, 84, 69, 83, 84, 16#11, 13, 16#0A, 10,
+        8, 95, 83, 53, 95, 16#12, 4, 2, 0, 1];
+    if Power.find_sleep_types(buffer[0..buffer.count], &a, &b) return 76;
+    method: [_]u8 = .[16#14, 16, 84, 69, 83, 84, 0, 8, 95, 83, 53, 95, 16#12, 4, 2, 0, 1];
+    if Power.find_sleep_types(method[0..method.count], &a, &b) return 77;
+    nested: [_]u8 = .[16#10, 16, 16#5C, 95, 83, 66, 95, 8, 95, 83, 53, 95, 16#12, 4, 2, 0, 1];
+    if Power.find_sleep_types(nested[0..nested.count], &a, &b) return 78;
+    return 0;
+}
+
+put32 :: (bytes: []u8, at: ssize, value: u32) { (cast(*u32)&bytes[at]).* = value; }
+put64 :: (bytes: []u8, at: ssize, value: u64) { (cast(*u64)&bytes[at]).* = value; }
+fix_checksum :: (bytes: []u8, at: ssize) {
+    bytes[at] = 0;
+    sum: u32 = 0;
+    for value: bytes sum = (sum + cast(u32)value) & 255;
+    bytes[at] = cast(u8)((256 - sum) & 255);
+}
+table :: (bytes: []u8, signature: str) {
+    for i: 0..4 bytes[i] = signature[i];
+    put32(bytes, 4, cast(u32)bytes.count);
+}
+
+table_tests :: () -> s32 {
+    dsdt: [46]u8 #align 8;
+    table(dsdt[0..dsdt.count], "DSDT");
+    aml: [_]u8 = .[8, 95, 83, 53, 95, 16#12, 4, 2, 0, 1];
+    for i: 0..aml.count dsdt[36 + i] = aml[i];
+    fix_checksum(dsdt[0..dsdt.count], 9);
+    fadt: [196]u8 #align 8;
+    table(fadt[0..fadt.count], "FACP");
+    put32(fadt[0..fadt.count], 40, cast(u32)cast(usize)dsdt.data);
+    put32(fadt[0..fadt.count], 64, 16#604);
+    fadt[89] = 2;
+    put32(fadt[0..fadt.count], 112, 1 << 10);
+    fadt[116] = 1; fadt[117] = 8; fadt[119] = 1; fadt[128] = 6;
+    put64(fadt[0..fadt.count], 120, 16#CF9);
+    fix_checksum(fadt[0..fadt.count], 9);
+    rsdt: [40]u8 #align 8;
+    table(rsdt[0..rsdt.count], "RSDT");
+    put32(rsdt[0..rsdt.count], 36, cast(u32)cast(usize)fadt.data);
+    fix_checksum(rsdt[0..rsdt.count], 9);
+    info: [48]u8 #align 8;
+    put32(info[0..info.count], 0, 48);
+    put32(info[0..info.count], 8, 14); put32(info[0..info.count], 12, 28);
+    for i: 0..8 info[16 + i] = "RSD PTR "[i];
+    put32(info[0..info.count], 32, cast(u32)cast(usize)rsdt.data);
+    put32(info[0..info.count], 44, 8);
+    fix_checksum(info[16..36], 8);
+    state: Power.State;
+    Power.init(cast(usize)info.data, &state);
+    if !state.available || state.pm1a != 16#604 || state.sleep_b != 1024
+        || state.reset_address != 16#CF9 || state.reset_value != 6 return 79;
+    fadt[9] += 1;
+    Power.init(cast(usize)info.data, &state);
+    if state.available || state.reset_address != 0 return 80;
+    fix_checksum(fadt[0..fadt.count], 9);
+    dsdt[9] += 1;
+    Power.init(cast(usize)info.data, &state);
+    if state.available return 81;
+    fix_checksum(dsdt[0..dsdt.count], 9);
+    // Extended PM1 register takes precedence over the legacy field.
+    fadt[172] = 1; fadt[173] = 16; fadt[175] = 2;
+    put64(fadt[0..fadt.count], 176, 16#704);
+    fix_checksum(fadt[0..fadt.count], 9);
+    Power.init(cast(usize)info.data, &state);
+    if !state.available || state.pm1a != 16#704 return 82;
+    fadt[172] = 0; // Unsupported memory-mapped PM1 must not fall back to the stale port.
+    fix_checksum(fadt[0..fadt.count], 9);
+    Power.init(cast(usize)info.data, &state);
+    if state.available return 83;
+    fadt[172] = 1;
+    put64(fadt[0..fadt.count], 140, 16#100001000);
+    fix_checksum(fadt[0..fadt.count], 9);
+    Power.init(cast(usize)info.data, &state);
+    if state.available return 84;
+    put64(fadt[0..fadt.count], 140, 0);
+    put32(fadt[0..fadt.count], 112, 1 << 20);
+    fix_checksum(fadt[0..fadt.count], 9);
+    Power.init(cast(usize)info.data, &state);
+    if state.available return 85;
+    put32(fadt[0..fadt.count], 112, 1 << 10);
+    fix_checksum(fadt[0..fadt.count], 9);
+
+    xsdt: [44]u8 #align 8;
+    table(xsdt[0..xsdt.count], "XSDT");
+    put64(xsdt[0..xsdt.count], 36, cast(u64)cast(usize)fadt.data);
+    fix_checksum(xsdt[0..xsdt.count], 9);
+    extended: [64]u8 #align 8;
+    put32(extended[0..extended.count], 0, 64);
+    put32(extended[0..extended.count], 8, 15); put32(extended[0..extended.count], 12, 44);
+    for i: 0..8 extended[16 + i] = "RSD PTR "[i];
+    extended[31] = 2;
+    put32(extended[0..extended.count], 36, 36);
+    put64(extended[0..extended.count], 40, cast(u64)cast(usize)xsdt.data);
+    put32(extended[0..extended.count], 60, 8);
+    fix_checksum(extended[16..36], 8);
+    fix_checksum(extended[16..52], 32);
+    Power.init(cast(usize)extended.data, &state);
+    if !state.available || state.pm1a != 16#704 return 86;
+    extended[48] += 1;
+    Power.init(cast(usize)extended.data, &state);
+    if state.available return 87;
+    Power.init(0, &state);
+    if state.available || state.reset_address != 0 return 88;
+    return 0;
+}
+
+controls_tests :: () -> s32 {
+    desktop: Gui.Desktop;
+    Gui.init(&desktop, 800, 600, 3);
+    event := Input.Event.{ .kind = .Key, .key = 16#44, .pressed = false };
+    Gui.handle(&desktop, &event);
+    if desktop.power_action != .None return 89;
+    event.pressed = true; Gui.handle(&desktop, &event);
+    if desktop.power_action != .Restart return 90;
+    Gui.init(&desktop, 800, 600, 3);
+    event.key = 16#58; Gui.handle(&desktop, &event);
+    if desktop.power_action != .PowerOff return 91;
+    Gui.init(&desktop, 800, 600, 3, false);
+    Gui.handle(&desktop, &event);
+    if desktop.power_action != .None || desktop.status_message.count == 0 return 92;
+    Gui.init(&desktop, 800, 600, 3);
+    event = .{ .kind = .Mouse, .dx = 210, .dy = -276, .buttons = 1 };
+    Gui.handle(&desktop, &event);
+    if desktop.power_action != .Restart return 93;
+    Gui.init(&desktop, 800, 600, 3);
+    event.dx = 330; Gui.handle(&desktop, &event);
+    if desktop.power_action != .PowerOff return 94;
+    return 0;
+}
+
+#public run_power_tests :: () -> s32 {
+    code := aml_tests();
+    if code == 0 code = table_tests();
+    if code == 0 code = controls_tests();
+    if code == 0 Port.debug("[Power checks passed]\n");
+    return code;
+}

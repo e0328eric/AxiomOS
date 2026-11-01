@@ -90,7 +90,7 @@ run_build :: () {
     command := "build";
     if args.count >= 1 command = args[0];
     if command == "help" {
-        print("glosso first.glo -- [build|make-iso|make-test-iso|run-qemu|clean]\n");
+        print("glosso first.glo -- [build|make-iso|make-test-iso|run-qemu|test|clean]\n");
         return;
     }
     // Guard the fixed relative paths, especially the clean command.
@@ -102,12 +102,15 @@ run_build :: () {
             make_iso();
         case "make-test-iso";
             make_iso(true);
+        case "test";
+            make_iso(true);
+            checked(run_build_command("\"${PYTHON:-python3}\" tests/gui_smoke.py"));
         case "run-qemu";
             make_iso();
             checked(
                 run_build_command(
                     tprint(
-                        "\"${{QEMU:-qemu-system-x86_64}}\" -m 128M -cdrom {} -boot d -no-reboot -no-shutdown -debugcon file:build/debug.log",
+                        "\"${{QEMU:-qemu-system-x86_64}}\" -m 128M -cdrom {} -boot d -vga std -debugcon file:build/debug.log",
                         iso_path()
                     )
                 )

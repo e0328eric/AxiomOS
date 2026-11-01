@@ -1,6 +1,8 @@
-#import "Vga.glo" {Vga};
-#import "Io/Core";
 Port :: #import "port.glo";
+Fb :: #import "Framebuffer.glo";
+Input :: #import "Ps2.glo";
+Gui :: #import "Desktop.glo";
+Power :: #import "Power.glo";
 
 is_boot_test :: () -> bool {
     args := get_cmdline_args();
@@ -8,39 +10,74 @@ is_boot_test :: () -> bool {
 }
 BOOT_TEST :: #comptime is_boot_test();
 #import "../../tests/vga_test.glo" {run_vga_tests};
+#import "../../tests/gui_test.glo" {run_gui_tests};
+#import "../../tests/power_test.glo" {run_power_tests};
 
 // The fasm boot code calls this exported C ABI procedure as glo_kmain.
-kmain :: () -> #Never #c_call {
+kmain :: (multiboot_info: usize) -> #Never #c_call {
     #if OUT.os != .Freestanding || OUT.cpu != .X86_64
     #compile_error "AxiomOS requires --target x86_64-freestanding";
 
     #if BOOT_TEST {
         code := run_vga_tests();
+        if code == 0 code = run_gui_tests();
+        if code == 0 code = run_power_tests();
         if code != 0 {
-            Port.outb(16#E9, #char "!");
-            Port.outb(16#E9, cast(u8)(code + 48));
+            Port.debug("[Self-test failed: ");
+            Port.outb(16#E9, cast(u8)(code / 10 + 48));
+            Port.outb(16#E9, cast(u8)(code % 10 + 48));
+            Port.debug("]\n");
             Port.halt();
         }
     }
-    if main().is_err() Port.outb(16#E9, #char "!");
-    Port.halt();
-}
-
-main :: () -> Io_Error!void {
-    vga := Vga.init(.White, .Black);
-    vga.clearMonitor();
-
-    vga_writer := vga.writer();
-    vga_writer.print("Hello, AxiomOS!\n")?;
-    for i: 0..10000 {
-        vga_writer.print("Here is a number {}, and the next is {}.\n", i, i + 1)?;
-        #if !BOOT_TEST sleep(1000);
+    framebuffer: Fb.Framebuffer;
+    if !Fb.init(multiboot_info, &framebuffer) {
+        Port.debug("[AxiomOS: unsupported framebuffer; need 32-bit RGB, 640x480 to 1280x1024, below 4 GiB]\n");
+        Port.halt();
     }
-    return .Ok;
-}
-
-sleep :: (tick: usize) {
-    // Preserve the original busy wait; PAUSE keeps the loop at -O2/-O3.
-    tickk := tick * 25000;
-    for cast(usize)0..tickk Port.pause_cpu();
+    Port.debug("[Framebuffer ready]\n");
+    power: Power.State;
+    Power.init(multiboot_info, &power);
+    if power.available Port.debug("[ACPI power off ready]\n");
+    else Port.debug("[ACPI power off unavailable]\n");
+    devices := Input.init();
+    if (devices & 1) != 0 Port.debug("[Keyboard ready]\n");
+    if (devices & 2) != 0 Port.debug("[Mouse ready]\n");
+    decoder: Input.Decoder;
+    desktop: Gui.Desktop;
+    Gui.init(&desktop, framebuffer.width, framebuffer.height, devices, power.available);
+    Gui.draw(&desktop, &framebuffer);
+    Fb.present(&framebuffer);
+    Port.debug("[Desktop ready]\n");
+    while true {
+        event: Input.Event;
+        for 0..64 {
+            if !Input.poll(&decoder, &event) break;
+            Gui.handle(&desktop, &event);
+            if desktop.power_action != .None break;
+        }
+        if desktop.power_action != .None {
+            action := desktop.power_action;
+            desktop.power_action = .None;
+            message: str = "Restarting...";
+            if action == .PowerOff message = "Powering off...";
+            Fb.rect(&framebuffer, 0, 0, framebuffer.width, framebuffer.height, 16#0F1B2D);
+            Fb.text(&framebuffer, 40, 40, message, 16#F8FAFC, 2);
+            Fb.present(&framebuffer);
+            if action == .Restart Power.reboot(&power);
+            else Power.poweroff(&power);
+            // These routines only return if the hardware did not act.
+            desktop.status_message = "Restart failed";
+            if action == .PowerOff desktop.status_message = "Power off failed";
+            desktop.dirty = true;
+            Port.debug("[Power action failed]\n");
+        }
+        if desktop.dirty {
+            Gui.draw(&desktop, &framebuffer);
+            Fb.present(&framebuffer);
+        }
+        // HLT cannot wake on keyboard/mouse while interrupts are disabled.
+        Port.pause_cpu();
+    }
+    Port.halt();
 }
