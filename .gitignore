@@ -1,5 +1,5 @@
-/AxiomOS.iso
+/build/
 /isodir/
-/zig-out/
-/.zig-cache/
-/**/.DS_Store
+/AxiomOS.iso
+/first
+/.cache/

@@ -1,0 +1,46 @@
+#import "Vga.glo" {Vga};
+#import "Io/Core";
+Port :: #import "port.glo";
+
+is_boot_test :: () -> bool {
+    args := get_cmdline_args();
+    return args.count == 1 && args[0] == "boot-test";
+}
+BOOT_TEST :: #comptime is_boot_test();
+#import "../../tests/vga_test.glo" {run_vga_tests};
+
+// Both boot implementations call this exported C ABI procedure as glo_kmain.
+kmain :: () -> #Never #c_call {
+    #if OUT.os != .Freestanding || OUT.cpu != .X86_64
+    #compile_error "AxiomOS requires --target x86_64-freestanding";
+
+    #if BOOT_TEST {
+        code := run_vga_tests();
+        if code != 0 {
+            Port.outb(16#E9, #char "!");
+            Port.outb(16#E9, cast(u8)(code + 48));
+            Port.halt();
+        }
+    }
+    if main().is_err() Port.outb(16#E9, #char "!");
+    Port.halt();
+}
+
+main :: () -> Io_Error!void {
+    vga := Vga.init(.White, .Black);
+    vga.clearMonitor();
+
+    vga_writer := vga.writer();
+    vga_writer.print("Hello, AxiomOS!\n")?;
+    for i: 0..10000 {
+        vga_writer.print("Here is a number {}, and the next is {}.\n", i, i + 1)?;
+        #if !BOOT_TEST sleep(1000);
+    }
+    return .Ok;
+}
+
+sleep :: (tick: usize) {
+    // Preserve the original busy wait; PAUSE keeps the loop at -O2/-O3.
+    tickk := tick * 25000;
+    for cast(usize)0..tickk Port.pause_cpu();
+}

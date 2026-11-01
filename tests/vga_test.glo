@@ -1,0 +1,89 @@
+// Runs on the test kernel before the original demo. A RAM-backed Vga checks
+// the typed volatile buffer independently of the hardware screen at 0xB8000.
+#import "../src/kernel/Vga.glo";
+#import "Meta";
+Port :: #import "../src/kernel/port.glo";
+
+PackedFlags :: struct #packed { ready: bool; foreground: u4; mode: u3; }
+#comptime { #assert size_of(PackedFlags) == 1; }
+
+#public run_vga_tests :: () -> s32 {
+    flags := PackedFlags.{ true, 10, 5 };
+    flag_pointer := cast(*volatile PackedFlags)&flags;
+    flag_pointer.ready = false;
+    if (cast(*volatile u8)&flags).* != 16#B4 || flags.foreground != 10 || flags.mode != 5 return 20;
+    cells: [VGA_BUFFER_WIDTH * VGA_BUFFER_HEIGHT]VgaChar;
+    vga := Vga.init(.LightGreen, .Blue);
+    if cast(usize)vga.buffer != VGA_BUFFER_ADDR return 1;
+    vga.buffer = cast([*]volatile VgaChar)&cells[0];
+    raw := cast([*]const volatile u8)vga.buffer;
+
+    // All 256 VGA attributes, raw byte order, aggregate copies, and nested
+    // volatile field access. Neither addressing nor copying uses inline asm.
+    for bg: 0..16 {
+        for fg: 0..16 {
+            color := VgaColor.init(cast(VgaColorCode)fg, cast(VgaColorCode)bg);
+            if cast(ssize)color.fg != fg || cast(ssize)color.bg != bg return 2;
+            vga.buffer[0] = .{ .char = #char "A", .color = color };
+            vga.buffer[1] = vga.buffer[0];
+            if raw[0] != 65 || raw[2] != 65 return 3;
+            if raw[1] != cast(u8)(fg | (bg << 4)) || raw[3] != raw[1] return 4;
+            vga.buffer[1].char = #char "B";
+            if raw[2] != 66 || vga.buffer[0].char != 65 return 5;
+            vga.buffer[1].color.fg = .Black;
+            if raw[3] != cast(u8)(bg << 4) || raw[1] != cast(u8)(fg | (bg << 4)) return 18;
+            vga.buffer[1].color.bg = .White;
+            if raw[3] != 16#F0 || raw[2] != 66 return 19;
+        }
+    }
+
+    vga.clearMonitor();
+    if vga.cursor_x != 0 || vga.cursor_y != 0 return 6;
+    for i: 0..VGA_BUFFER_WIDTH * VGA_BUFFER_HEIGHT {
+        if raw[i * 2] != 32 || raw[i * 2 + 1] != 15 return 7;
+    }
+    // The writer borrows this exact Vga, including a replacement buffer.
+    out := vga.writer();
+    if out.state != &vga return 8;
+    vga.writeChar(#char "A");
+    vga.writeChar(#char "\t");
+    vga.writeChar(#char "B");
+    vga.writeChar(8);
+    vga.writeChar(#char "C");
+    if vga.cursor_x != 5 || vga.buffer[4].char != 67 return 9;
+    if raw[4 * 2 + 1] != 16#1A return 10;
+    vga.writeChar(#char "\r");
+    vga.writeChar(#char "D");
+    vga.writeChar(#char "\n");
+    if vga.cursor_x != 0 || vga.cursor_y != 1 || vga.buffer[0].char != 68 return 11;
+    vga.cursor_x = VGA_BUFFER_WIDTH - 1;
+    vga.cursor_y = 0;
+    vga.writeChar(#char "Z");
+    if vga.cursor_x != 0 || vga.cursor_y != 1 || vga.buffer[79].char != 90 return 12;
+
+    // Scroll preserves the whole cell, including non-default color. The last
+    // row is blank white-on-black, exactly as in the Zig implementation.
+    vga.buffer[VGA_BUFFER_WIDTH] = .{ .char = #char "S", .color = VgaColor.init(.Red, .Blue) };
+    vga.cursor_y = VGA_BUFFER_HEIGHT;
+    vga.scroll();
+    if vga.cursor_y != VGA_BUFFER_HEIGHT - 1 return 13;
+    if vga.buffer[0].char != 83 || raw[1] != 16#14 return 14;
+    for i: (VGA_BUFFER_HEIGHT - 1) * VGA_BUFFER_WIDTH..VGA_BUFFER_HEIGHT * VGA_BUFFER_WIDTH {
+        if vga.buffer[i].char != 32 || raw[i * 2 + 1] != 15 return 15;
+    }
+
+    vga.clearMonitor();
+    vga.color = VgaColor.init(.White, .Black);
+    // Exercise std's real {}, variadic specialization and error result,
+    // including values that require the freestanding 128-bit division helper.
+    minimum64 := cast(s64)(cast(u64)1 << 63);
+    minimum128 := cast(s128)(cast(u128)1 << 127);
+    if out.print("{} {} {} {}", minimum64, cast(u64)(-1), minimum128, cast(u128)(-1)).is_err() return 16;
+    expected := "-9223372036854775808 18446744073709551615 -170141183460469231731687303715884105728 340282366920938463463374607431768211455";
+    for i: 0..expected.count {
+        if vga.buffer[i].char != expected[i] || raw[i * 2 + 1] != 15 return 17;
+    }
+    marker := "\n[VGA language checks passed]\n";
+    for i: 0..marker.count Port.outb(16#E9, marker[i]);
+    return 0;
+}

@@ -1,0 +1,49 @@
+// LLVM's AT&T inline assembler; all device operations remain in Glosso.
+#public {
+    outb :: (port: u16, value: u8) #inline, always {
+        #asm {
+            \\outb %al, %dx
+            port_value: in (fixed(dx)) = port;
+            byte_value: in (fixed(al)) = value;
+            clobber: .Memory;
+        }
+    }
+
+    inb :: (port: u16) -> u8 #inline, always {
+        value: u8;
+        #asm {
+            \\inb %dx, %al
+            value: out(fixed(al));
+            port_value: in (fixed(dx)) = port;
+            clobber: .Memory;
+        }
+        return value;
+    }
+
+    inw :: (port: u16) -> u16 #inline, always {
+        value: u16;
+        #asm {
+            \\inw %dx, %ax
+            value: out(fixed(ax));
+            port_value: in (fixed(dx)) = port;
+            clobber: .Memory;
+        }
+        return value;
+    }
+
+    pause_cpu :: () #inline, always {
+        #asm {
+            \\pause
+        }
+    }
+
+    halt :: () -> #Never {
+        while true {
+            #asm {
+                \\cli
+                \\hlt
+                clobber: .Memory;
+            }
+        }
+    }
+}
