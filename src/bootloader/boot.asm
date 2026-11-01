@@ -1,6 +1,6 @@
-; Multiboot2 enters in protected mode. Glosso's function-level inline asm
-; cannot provide a naked 32-bit entry in a 64-bit translation unit, so only
-; the Multiboot header and mode transition live in this fasm ELF64 object.
+; Multiboot2 enters in 32-bit protected mode. This fasm ELF64 object
+; provides the Multiboot header and switches to long mode before calling
+; the Glosso kernel.
 format ELF64
 public _start
 extrn glo_kmain

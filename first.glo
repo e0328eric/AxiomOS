@@ -1,4 +1,4 @@
-// glosso first.glo -- <command> [fasm|inline]; fasm remains the default.
+// glosso first.glo -- <command>; the boot object is assembled with fasm.
 #import "Compiler";
 #import "Format";
 #import "Io";
@@ -19,54 +19,29 @@ checked :: (result: Compiler_Error!str) {
     }
 }
 
-output_root :: (inline_boot: bool) -> str {
-    if inline_boot return "build/inline";
-    return "build";
-}
-
 kernel_name :: (boot_test: bool) -> str {
     if boot_test return "test-kernel.bin";
     return "kernel.bin";
 }
 
-iso_path :: (inline_boot: bool, boot_test: bool = false) -> str {
-    if boot_test return tprint("{}/test.iso", output_root(inline_boot));
-    if inline_boot return "AxiomOS-inline.iso";
+iso_path :: (boot_test: bool = false) -> str {
+    if boot_test return "build/test.iso";
     return "AxiomOS.iso";
 }
 
-build_boot :: (inline_boot: bool) {
-    root := output_root(inline_boot);
-    checked(run_build_command(tprint("mkdir -p {}", root)));
-    if !inline_boot {
-        checked(run_build_command("\"${FASM:-fasm}\" src/bootloader/boot.asm build/boot.o"));
-        return;
-    }
-    // A separate compilation: no std discovery, Prelude, Context or imports.
-    workspace := Workspace.create("AxiomOS inline boot");
-    options := workspace.get_build_options();
-    options.target.os = .Freestanding;
-    options.target.cpu = .X86_64;
-    options.backend = .Object;
-    options.output_path = root;
-    options.output_executable_name = "boot.o";
-    options.optimization_level = .Optimized;
-    options.set_no_main();
-    options.add_compiler_arg("--no-std");
-    options.add_compiler_arg("--cache-dir=build/cache");
-    options.set_build_options(workspace);
-    checked(add_build_file("src/bootloader/boot.glo", workspace));
+build_boot :: () {
+    checked(run_build_command("mkdir -p build"));
+    checked(run_build_command("\"${FASM:-fasm}\" src/bootloader/boot.asm build/boot.o"));
 }
 
-build_kernel :: (inline_boot: bool = false, boot_test: bool = false) {
-    build_boot(inline_boot);
-    root := output_root(inline_boot);
+build_kernel :: (boot_test: bool = false) {
+    build_boot();
     workspace := Workspace.create("AxiomOS");
     options := workspace.get_build_options();
     options.target.os = .Freestanding;
     options.target.cpu = .X86_64;
     options.backend = .LLVM;
-    options.output_path = root;
+    options.output_path = "build";
     options.output_executable_name = kernel_name(boot_test);
     if boot_test {
         options.compile_time_command_line.push("boot-test");
@@ -77,29 +52,25 @@ build_kernel :: (inline_boot: bool = false, boot_test: bool = false) {
     options.set_linker_script("linker.ld");
     options.add_compiler_arg("--cache-dir=build/cache");
     options.add_linker_args(
-        tprint("{}/boot.o", root),
+        "build/boot.o",
         "-z",
         "max-page-size=4096",
         "--build-id=none"
     );
-    // Keep _start and its sections; discard the uncalled assembly carrier.
-    if inline_boot options.add_linker_arg("--gc-sections");
     options.set_build_options(workspace);
     checked(add_build_file("src/kernel/kmain.glo", workspace));
-    print("[AxiomOS] built {}/{} using Glosso's ELF linker\n", root, options.output_executable_name);
+    print("[AxiomOS] built build/{} using Glosso's ELF linker\n", options.output_executable_name);
 }
 
-make_iso :: (inline_boot: bool = false, boot_test: bool = false) {
-    build_kernel(inline_boot, boot_test);
-    root := output_root(inline_boot);
+make_iso :: (boot_test: bool = false) {
+    build_kernel(boot_test);
     stage := "isodir";
-    if inline_boot stage = "build/inline/isodir";
-    if boot_test stage = tprint("{}/test-isodir", root);
-    image := iso_path(inline_boot, boot_test);
+    if boot_test stage = "build/test-isodir";
+    image := iso_path(boot_test);
     checked(run_build_command(tprint("mkdir -p {}/boot/grub", stage)));
     checked(
         run_build_command(
-            tprint("cp {}/{} {}/boot/kernel.bin", root, kernel_name(boot_test), stage)
+            tprint("cp build/{} {}/boot/kernel.bin", kernel_name(boot_test), stage)
         )
     );
     checked(run_build_command(tprint("cp src/bootloader/grub.cfg {}/boot/grub/grub.cfg", stage)));
@@ -115,41 +86,34 @@ run_build :: () {
     #compile_error "The AxiomOS build uses Linux host tools (fasm, GRUB and QEMU)";
 
     args := get_cmdline_args();
-    if args.count > 2 fail("expected <command> [fasm|inline]; use -- help");
+    if args.count > 1 fail("expected <command>; use -- help");
     command := "build";
     if args.count >= 1 command = args[0];
-    inline_boot := false;
-    if args.count == 2 {
-        if args[1] == "inline" inline_boot = true;
-        else if args[1] != "fasm" fail("boot implementation must be fasm or inline");
-    }
     if command == "help" {
-        print("glosso first.glo -- [build|make-iso|make-test-iso|run-qemu|clean] [fasm|inline]\n");
+        print("glosso first.glo -- [build|make-iso|make-test-iso|run-qemu|clean]\n");
         return;
     }
     // Guard the fixed relative paths, especially the clean command.
     checked(run_build_command("test -f src/kernel/kmain.glo && test -f src/bootloader/boot.asm"));
     if command == {
         case "build";
-            build_kernel(inline_boot);
+            build_kernel();
         case "make-iso";
-            make_iso(inline_boot);
+            make_iso();
         case "make-test-iso";
-            make_iso(inline_boot, true);
+            make_iso(true);
         case "run-qemu";
-            make_iso(inline_boot);
+            make_iso();
             checked(
                 run_build_command(
                     tprint(
-                        "\"${{QEMU:-qemu-system-x86_64}}\" -m 128M -cdrom {} -boot d -no-reboot -no-shutdown -debugcon file:{}/debug.log",
-                        iso_path(inline_boot),
-                        output_root(inline_boot)
+                        "\"${{QEMU:-qemu-system-x86_64}}\" -m 128M -cdrom {} -boot d -no-reboot -no-shutdown -debugcon file:build/debug.log",
+                        iso_path()
                     )
                 )
             );
         case "clean";
-            if inline_boot checked(run_build_command("rm -rf -- build/inline AxiomOS-inline.iso"));
-            else checked(run_build_command("rm -rf -- build isodir AxiomOS.iso AxiomOS-inline.iso"));
+            checked(run_build_command("rm -rf -- build isodir AxiomOS.iso"));
         else;
             fail("unknown subcommand; use -- help");
     }

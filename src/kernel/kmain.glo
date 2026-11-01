@@ -9,7 +9,7 @@ is_boot_test :: () -> bool {
 BOOT_TEST :: #comptime is_boot_test();
 #import "../../tests/vga_test.glo" {run_vga_tests};
 
-// Both boot implementations call this exported C ABI procedure as glo_kmain.
+// The fasm boot code calls this exported C ABI procedure as glo_kmain.
 kmain :: () -> #Never #c_call {
     #if OUT.os != .Freestanding || OUT.cpu != .X86_64
     #compile_error "AxiomOS requires --target x86_64-freestanding";
